@@ -42,6 +42,19 @@ func main() {
 	args := os.Args[2:]
 
 	var err error
+	// Todo comando que fala com o motor sobe um sozinho em background se
+	// não encontrar nenhum rodando — só `serve` (que É o motor) e `-h`
+	// ficam de fora. É isto que deixa `agentmesh spawn ...` funcionar de
+	// primeira sem exigir `agentmesh serve &` manual antes.
+	switch cmd {
+	case "serve", "-h", "--help", "help":
+	default:
+		if err := ensureServer(); err != nil {
+			fmt.Fprintln(os.Stderr, "agentmesh:", err)
+			os.Exit(1)
+		}
+	}
+
 	switch cmd {
 	case "serve":
 		err = cmdServe(args)
@@ -195,6 +208,21 @@ func cmdSpawn(args []string) error {
 		return fmt.Errorf("uso: agentmesh spawn NOME COMANDO [ARGS...] [--cwd DIR]")
 	}
 	name, command, rest := args[0], args[1], args[2:]
+
+	// Sem --cwd, usa o diretório de onde este comando está sendo rodado —
+	// não o diretório do motor (que pode estar em background há muito
+	// tempo, ligado num diretório completamente diferente). É isto que
+	// permite `cd ~/meu-projeto && agentmesh spawn nome claude` sem apontar
+	// nada, e apontar dois agentes pro MESMO diretório é só repetir o
+	// mesmo --cwd (ou rodar os dois spawns da mesma pasta) — nenhum dos
+	// dois casos precisa de tratamento especial no servidor.
+	if cwd == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("não consegui resolver o diretório atual: %w", err)
+		}
+		cwd = wd
+	}
 	var res mesh.SpawnResult
 	err := apiRequest("POST", "/spawn", map[string]any{
 		"name": name, "command": command, "args": rest, "cwd": cwd,
