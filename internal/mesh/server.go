@@ -1,13 +1,14 @@
 package mesh
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/NatanBack77/agentmesh/internal/tmuxdrv"
 )
 
 // registerRoutes wires the HTTP API. Every route is loopback-only by virtue
@@ -24,31 +25,8 @@ func (e *Engine) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /primitives/exec", e.handleExec)
 	mux.HandleFunc("POST /primitives/assign", e.handleAssign)
 
-	mux.HandleFunc("POST /agents/{id}/keys", e.handleRawKeys)
-}
-
-// handleRawKeys writes raw bytes straight to an agent's PTY, bypassing every
-// turn-status gate assign/handoff have. Used to script past interactive
-// first-run screens (theme picker, trust prompt) that block before the
-// agent ever reaches an IDLE prompt the normal primitives could target.
-func (e *Engine) handleRawKeys(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Data string `json:"data"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	sessionID, err := e.ResolveSession(r.PathValue("id"))
-	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := e.WritePTY(sessionID, []byte(req.Data)); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	mux.HandleFunc("POST /agents/{id}/key", e.handleSendKey)
+	mux.HandleFunc("GET /agents/{id}/screen", e.handleScreen)
 }
 
 type agentView struct {
@@ -185,7 +163,45 @@ func (e *Engine) handleAssign(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, code, resp)
 }
 
-var _ = context.Background // keep context import if handlers grow
+// handleSendKey sends one named tmux key (Enter, C-c, Escape, ...) straight
+// into an agent's session, bypassing every turn-status gate assign/handoff
+// have. Used to script past interactive first-run screens (theme picker,
+// trust prompt) that block before an agent ever reaches a detectable idle
+// prompt the normal primitives could target.
+func (e *Engine) handleSendKey(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Key string `json:"key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Key == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key is required"})
+		return
+	}
+	ps, err := e.primitives.resolveTarget(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := tmuxdrv.SendKey(ps.TerminalID, req.Key); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// handleScreen returns the agent's current visible tmux pane as plain text.
+func (e *Engine) handleScreen(w http.ResponseWriter, r *http.Request) {
+	ps, err := e.primitives.resolveTarget(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	text, err := tmuxdrv.CapturePane(ps.TerminalID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"text": text})
+}
 
 // writePeersFile drops a plain-text peer list into every registered agent's
 // CWD (.agentmesh/peers.md) so any agent — regardless of provider — can

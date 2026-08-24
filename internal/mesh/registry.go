@@ -1,15 +1,13 @@
 // Package mesh is the communication engine: a registry of running agents
 // plus the exec/handoff/assign/send primitives that let them talk to each
-// other. Adapted from Openfield's internal/orchestrator package, trimmed
-// down to just the agent-to-agent communication core (no canvas, no notes,
-// no kanban, no workspace scoping — every registered agent is a peer of
-// every other agent).
+// other. Every agent lives in its own tmux session (see internal/tmuxdrv) —
+// tmux owns terminal rendering, sizing and attaching; this package only
+// owns identity, turn status and message routing.
 package mesh
 
 import (
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -102,12 +100,13 @@ type Message struct {
 }
 
 // AgentState holds all engine-managed state for one running agent.
+// TerminalID doubles as the tmux session name — there is no separate PTY
+// session identifier in this design.
 type AgentState struct {
 	mu sync.Mutex
 
 	TerminalID string
 	AgentName  string
-	SessionID  string
 	Provider   Provider
 	CWD        string
 	Command    string
@@ -123,21 +122,12 @@ type AgentState struct {
 
 	stickyReady bool
 	dead        chan struct{}
-
-	outputBytes atomic.Int64
 }
 
-func (ps *AgentState) AddOutputBytes(n int) {
-	if n > 0 {
-		ps.outputBytes.Add(int64(n))
-	}
-}
-
-func newAgentState(terminalID, agentName, sessionID, cwd, command string, provider Provider) *AgentState {
+func newAgentState(terminalID, agentName, cwd, command string, provider Provider) *AgentState {
 	return &AgentState{
 		TerminalID:       terminalID,
 		AgentName:        agentName,
-		SessionID:        sessionID,
 		Provider:         provider,
 		CWD:              cwd,
 		Command:          command,
@@ -151,8 +141,7 @@ func newAgentState(terminalID, agentName, sessionID, cwd, command string, provid
 
 // applyStatus transitions the agent to s, enforcing the sticky-ready latch
 // (once IDLE/COMPLETED, refuse PROCESSING regression until notifyInputSent
-// is called — prevents TUI redraws from flapping the status). Caller must
-// hold ps.mu.
+// is called — prevents redraw flapping). Caller must hold ps.mu.
 func (ps *AgentState) applyStatus(s Status) bool {
 	if s == StatusUnknown && ps.Status != StatusUnknown {
 		return false
@@ -187,15 +176,14 @@ func (ps *AgentState) notifyInputSent() {
 
 // Registry is the central store of all registered agents.
 type Registry struct {
-	byID      sync.Map // TerminalID -> *AgentState
-	byName    sync.Map // AgentName -> TerminalID
-	bySession sync.Map // SessionID -> TerminalID
+	byID   sync.Map // TerminalID -> *AgentState
+	byName sync.Map // AgentName -> TerminalID
 }
 
 // Register adds a new agent to the registry. Duplicate agent names get a
 // short ID suffix ("coder" -> "coder-7c2f") so name-based targeting stays
 // unambiguous.
-func (r *Registry) Register(terminalID, agentName, sessionID, cwd, command string, provider Provider) (*AgentState, error) {
+func (r *Registry) Register(terminalID, agentName, cwd, command string, provider Provider) (*AgentState, error) {
 	if _, exists := r.byID.Load(terminalID); exists {
 		return nil, fmt.Errorf("mesh.Register: terminal %q already registered", terminalID)
 	}
@@ -209,9 +197,8 @@ func (r *Registry) Register(terminalID, agentName, sessionID, cwd, command strin
 			r.byName.LoadOrStore(agentName, terminalID)
 		}
 	}
-	ps := newAgentState(terminalID, agentName, sessionID, cwd, command, provider)
+	ps := newAgentState(terminalID, agentName, cwd, command, provider)
 	r.byID.Store(terminalID, ps)
-	r.bySession.Store(sessionID, terminalID)
 	return ps, nil
 }
 
@@ -224,7 +211,6 @@ func (r *Registry) Unregister(terminalID string) {
 	if ps.AgentName != "" {
 		r.byName.Delete(ps.AgentName)
 	}
-	r.bySession.Delete(ps.SessionID)
 }
 
 func (r *Registry) ByID(terminalID string) (*AgentState, bool) {
@@ -237,14 +223,6 @@ func (r *Registry) ByID(terminalID string) (*AgentState, bool) {
 
 func (r *Registry) ByName(name string) (*AgentState, bool) {
 	v, ok := r.byName.Load(name)
-	if !ok {
-		return nil, false
-	}
-	return r.ByID(v.(string))
-}
-
-func (r *Registry) BySession(sessionID string) (*AgentState, bool) {
-	v, ok := r.bySession.Load(sessionID)
 	if !ok {
 		return nil, false
 	}

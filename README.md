@@ -12,19 +12,25 @@ comunicação entre agentes, para rodar puro no terminal.
 
 ## Como funciona
 
-Um único processo (`agentmesh serve`) mantém um PTY real por agente
-spawnado, detecta quando cada um termina o turno (regex sobre a saída —
-funciona com qualquer CLI, sem precisar que o agente coopere) e expõe uma
-API HTTP local (loopback, `127.0.0.1`) com as primitivas de comunicação.
-Todo agente registrado é peer de todos os outros — não existe passo de
-"desenhar uma seta" como no Openfield: é uma malha (mesh) plana.
+Um único processo (`agentmesh serve`) spawna cada agente **dentro da sua
+própria sessão [tmux](https://github.com/tmux/tmux)** — é o tmux quem faz a
+emulação de terminal de verdade (tamanho, scroll, redraw), não uma PTY
+gerenciada à mão. O motor só lê a tela renderizada (`tmux capture-pane`)
+pra detectar quando o agente termina o turno (regex sobre o texto — funciona
+com qualquer CLI, sem precisar que o agente coopere) e expõe uma API HTTP
+local (loopback, `127.0.0.1`) com as primitivas de comunicação. Todo agente
+registrado é peer de todos os outros — não existe passo de "desenhar uma
+seta" como no Openfield: é uma malha (mesh) plana.
+
+**Requer `tmux` instalado** (`sudo apt install tmux` / `dnf` / `brew`) —
+único pré-requisito de sistema além do binário do `agentmesh`.
 
 ## Instalar numa máquina nova
 
-Pré-requisito: [Go](https://go.dev/dl/) 1.21+ instalado (`go version` pra
-conferir). Este repositório é privado — quem for instalar precisa ter
-acesso a ele (te peça pra adicionar como colaborador, ou use um token/chave
-SSH sua já autorizada).
+Pré-requisitos: [Go](https://go.dev/dl/) 1.21+ (`go version` pra conferir)
+e `tmux` (`tmux -V`). Este repositório é privado — quem for instalar
+precisa ter acesso a ele (te peça pra adicionar como colaborador, ou use um
+token/chave SSH sua já autorizada).
 
 ```bash
 git clone git@github.com:NatanBack77/agentmesh.git
@@ -37,7 +43,7 @@ O script compila e coloca o binário em `~/.local/bin/agentmesh`. Se
 adicionar no `~/.bashrc`/`~/.zshrc`. Sem acesso à internet pra clonar mas
 com o binário já compilado em outra máquina Linux/amd64 equivalente, basta
 copiar o arquivo `~/.local/bin/agentmesh` — é um binário estático, sem
-instalador.
+instalador (só precisa do `tmux` já instalado no destino).
 
 Depois de instalado, confirme:
 
@@ -47,9 +53,10 @@ agentmesh --help
 
 ### Deixar o motor sempre rodando (opcional)
 
-Por padrão `agentmesh serve` roda em primeiro plano (ou em background com
-`&`) só enquanto o terminal/sessão existir. Pra manter rodando o tempo todo
-sem depender de terminal aberto, existe uma unidade systemd de usuário
+Qualquer comando (`agentmesh spawn`, `agentmesh ls`, ...) já sobe o motor
+sozinho em background se não encontrar um rodando — não precisa fazer nada
+manual. Se preferir controlar isso à parte (por exemplo, pra ele sobreviver
+mesmo sem nenhum terminal aberto), existe uma unidade systemd de usuário
 pronta em `scripts/agentmesh.service`:
 
 ```bash
@@ -84,37 +91,39 @@ CLI no lugar de `claude`.
 
 Nota: a detecção de "o agente terminou o turno" é feita por regex sobre a
 tela (não existe API oficial pra isso em nenhum desses CLIs) — às vezes ela
-acerta cedo demais ou tarde demais. O `demo` já tolera isso esperando mais
-um pouco antes de desistir; se ainda assim não confirmar, rode
-`agentmesh attach beta` pra ver a tela com os próprios olhos.
+acerta cedo ou tarde demais, e telas de diálogo (tema, confiança) podem se
+parecer com um prompt pronto. O motor já reconhece e ignora os diálogos
+conhecidos do Claude Code; se ainda assim travar num CLI diferente, rode
+`agentmesh attach NOME` pra ver a tela com os próprios olhos e destravar na
+mão (é um `tmux attach` de verdade — funciona igual a entrar em qualquer
+sessão tmux).
 
 ## Uso
 
 ```bash
-# 1. sobe o motor (deixe rodando num terminal, ou em background —
-#    ou nem precisa: qualquer outro comando do agentmesh sobe um sozinho
-#    se não encontrar um rodando)
-agentmesh serve &
+# 1. spawna os agentes (o motor sobe sozinho se não estiver rodando)
+cd ~/meu-projeto                # sem --cwd, usa o diretório atual
+agentmesh spawn coder    claude
+agentmesh spawn reviewer claude
 
-# 2. spawna os agentes
-agentmesh spawn coder    claude --cwd ~/meu-projeto
-agentmesh spawn reviewer claude --cwd ~/meu-projeto
-
-# 3. lista quem está rodando
+# 2. lista quem está rodando
 agentmesh ls
 
-# 4. entra interativamente num agente (terminal de verdade, raw mode)
-agentmesh attach coder          # Ctrl+] desanexa sem matar o processo
+# 3. entra interativamente num agente — é um tmux attach de verdade
+agentmesh attach coder          # Ctrl+B D desanexa sem matar o processo
 
-# 5. de outro terminal, ou de dentro de um dos agentes via Bash tool:
+# 4. de outro terminal, ou de dentro de um dos agentes via Bash tool:
 agentmesh send reviewer "dá uma olhada no PR aberto"        # não bloqueia
 agentmesh handoff coder "implementa X" --timeout 300        # bloqueia e traz o resultado
 agentmesh exec meushell "npm test"                           # só em agentes shell
 
 agentmesh whoami                # identidade do agente atual
-agentmesh watch reviewer        # acompanha a saída, só leitura
+agentmesh watch reviewer        # acompanha, somente leitura (tmux attach -r)
 agentmesh kill reviewer
 ```
+
+Dois agentes podem apontar pro **mesmo** diretório sem problema (é só
+repetir o `--cwd`, ou rodar os dois `spawn` da mesma pasta).
 
 Quando o agente spawnado é `claude`, o `agentmesh` já injeta via
 `--append-system-prompt` a instrução de que ele pode usar a CLI `agentmesh`
@@ -143,8 +152,13 @@ rodando, legível por qualquer ferramenta de leitura de arquivo.
 - `AGENTMESH_URL` — onde falar com o motor (default `http://127.0.0.1:8990`).
 - `AGENTMESH_TERMINAL_ID` — identidade de quem está chamando a CLI; setada
   automaticamente nos agentes que o próprio `agentmesh spawn` cria.
-- `AGENTMESH_SOCK` — caminho do socket Unix usado por `attach`/`watch`
-  (default `$XDG_RUNTIME_DIR/agentmesh.sock`).
+
+## Custo de recursos
+
+Desprezível. Cada sessão tmux usa poucos MB de RAM e CPU irrelevante — o
+que consome recursos de verdade é o processo do agente (`claude`/`codex`/
+etc.) rodando dentro, exatamente igual a se você tivesse aberto ele à mão
+num terminal comum. tmux não duplica processo nem adiciona nada pesado.
 
 ## O que ficou de fora (de propósito)
 

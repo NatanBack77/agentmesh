@@ -1,14 +1,15 @@
 // Command agentmesh runs a small local engine that lets several agent CLIs
 // (claude, codex, gemini, opencode, or plain shells) run side by side and
 // talk to each other — send messages, hand off tasks, run commands — right
-// from your terminal.
+// from your terminal. Every agent lives in its own tmux session: tmux does
+// the actual terminal rendering/sizing/attaching, agentmesh only does the
+// orchestration on top of it.
 //
 // Typical use:
 //
-//	agentmesh serve &
-//	agentmesh spawn coder   claude --cwd ~/myproject
-//	agentmesh spawn reviewer claude --cwd ~/myproject
-//	agentmesh attach coder            # interactive terminal glued to it
+//	agentmesh spawn coder    claude   # motor sobe sozinho se precisar
+//	agentmesh spawn reviewer claude
+//	agentmesh attach coder            # terminal de verdade (é um tmux attach)
 //	agentmesh send reviewer "olhe o PR aberto"
 package main
 
@@ -17,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -30,7 +30,7 @@ import (
 	"time"
 
 	"github.com/NatanBack77/agentmesh/internal/mesh"
-	"golang.org/x/term"
+	"github.com/NatanBack77/agentmesh/internal/tmuxdrv"
 )
 
 func main() {
@@ -73,9 +73,9 @@ func main() {
 	case "kill":
 		err = cmdKill(args)
 	case "attach":
-		err = cmdAttachOrWatch(args, "ATTACH")
+		err = cmdAttachOrWatch(args, false)
 	case "watch":
-		err = cmdAttachOrWatch(args, "WATCH")
+		err = cmdAttachOrWatch(args, true)
 	case "demo":
 		err = cmdDemo(args)
 	case "-h", "--help", "help":
@@ -93,7 +93,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Print(`agentmesh — motor local de comunicação entre agentes
+	fmt.Print(`agentmesh — motor local de comunicação entre agentes (roda sobre tmux)
 
   agentmesh serve [--port N]                    inicia o motor (fica em foreground)
   agentmesh spawn NOME COMANDO [ARGS...] [--cwd DIR]
@@ -103,15 +103,16 @@ func usage() {
   agentmesh exec SHELL "comando"                 roda comando num agente shell e lê a saída
   agentmesh whoami                               identidade do agente atual (usa $AGENTMESH_TERMINAL_ID)
   agentmesh kill NOME                            mata um agente
-  agentmesh attach NOME                          terminal interativo anexado (Ctrl+] desanexa)
-  agentmesh watch NOME                           acompanha a saída (somente leitura)
+  agentmesh attach NOME                          entra no terminal de verdade (tmux attach; Ctrl+B D desanexa)
+  agentmesh watch NOME                           acompanha, somente leitura (tmux attach -r)
   agentmesh demo [--agent claude|codex]          teste automático: sobe o motor,
                                                   spawna 2 agentes de verdade e faz
                                                   um mandar mensagem pro outro sozinho
 
-Variáveis de ambiente: AGENTMESH_URL (default http://127.0.0.1:8990),
-AGENTMESH_TERMINAL_ID (identidade do agente que está chamando, herdada
-automaticamente em processos que o próprio agentmesh spawnou).
+Requer tmux instalado. Variáveis de ambiente: AGENTMESH_URL (default
+http://127.0.0.1:8990), AGENTMESH_TERMINAL_ID (identidade do agente que
+está chamando, herdada automaticamente em processos que o próprio
+agentmesh spawnou).
 `)
 }
 
@@ -177,6 +178,9 @@ func flagValue(args []string, name string) (string, []string) {
 }
 
 func cmdServe(args []string) error {
+	if err := tmuxdrv.Available(); err != nil {
+		return err
+	}
 	portStr, _ := flagValue(args, "--port")
 	port := 8990
 	if portStr != "" {
@@ -187,16 +191,7 @@ func cmdServe(args []string) error {
 		port = p
 	}
 
-	eng := mesh.New(mesh.Config{Port: port})
-
-	sockPath := mesh.SocketPath()
-	ln, err := eng.ServeAttach(sockPath)
-	if err != nil {
-		return fmt.Errorf("attach socket: %w", err)
-	}
-	defer ln.Close()
-	fmt.Fprintf(os.Stderr, "agentmesh: socket de attach em %s\n", sockPath)
-
+	eng := mesh.New(mesh.Config{})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return eng.Start(ctx, port)
@@ -342,80 +337,43 @@ func cmdKill(args []string) error {
 	return apiRequest("DELETE", "/agents/"+args[0], nil, nil)
 }
 
-func cmdAttachOrWatch(args []string, mode string) error {
+// cmdAttachOrWatch resolves the agent's real tmux session name and execs
+// straight into `tmux attach`. tmux itself handles raw terminal mode,
+// window sizing, resize-on-SIGWINCH, scrollback and detach (Ctrl+B D) — no
+// custom protocol needed on agentmesh's side at all.
+func cmdAttachOrWatch(args []string, readOnly bool) error {
+	verb := "attach"
+	if readOnly {
+		verb = "watch"
+	}
 	if len(args) < 1 {
-		return fmt.Errorf("uso: agentmesh %s NOME", strings.ToLower(mode))
+		return fmt.Errorf("uso: agentmesh %s NOME", verb)
 	}
-	name := args[0]
-	conn, err := net.Dial("unix", mesh.SocketPath())
-	if err != nil {
-		return fmt.Errorf("não consegui conectar no socket do motor (`agentmesh serve` está rodando?): %w", err)
-	}
-	defer conn.Close()
-
-	fmt.Fprintf(conn, "%s %s\n", mode, name)
-	reply := make([]byte, 256)
-	n, err := conn.Read(reply)
-	if err != nil {
+	if err := tmuxdrv.Available(); err != nil {
 		return err
 	}
-	line := strings.TrimSpace(string(reply[:n]))
-	if line != "OK" {
-		return fmt.Errorf("%s", strings.TrimPrefix(line, "ERR "))
+	name := args[0]
+	var v agentView
+	if err := apiRequest("GET", "/agents/"+name, nil, &v); err != nil {
+		return err
 	}
 
-	if mode == "ATTACH" {
-		fmt.Fprintf(os.Stderr, "\x1b[2manexado a %q — Ctrl+] desanexa\x1b[0m\r\n", name)
-		if !term.IsTerminal(int(os.Stdin.Fd())) {
-			_, err := io.Copy(os.Stdout, conn)
-			return err
-		}
-		old, err := term.MakeRaw(int(os.Stdin.Fd()))
-		if err != nil {
-			return err
-		}
-		defer term.Restore(int(os.Stdin.Fd()), old)
-
-		done := make(chan struct{})
-		go func() {
-			io.Copy(os.Stdout, conn)
-			close(done)
-		}()
-
-		buf := make([]byte, 1)
-		for {
-			nr, err := os.Stdin.Read(buf)
-			if err != nil {
-				break
-			}
-			if nr > 0 && buf[0] == 0x1d { // Ctrl+]
-				break
-			}
-			if nr > 0 {
-				if _, err := conn.Write(buf[:nr]); err != nil {
-					break
-				}
-			}
-		}
-		conn.Close()
-		<-done
-		fmt.Fprint(os.Stderr, "\r\n\x1b[2mdesanexado.\x1b[0m\r\n")
-		return nil
-	}
-
-	// WATCH: read-only.
-	fmt.Fprintf(os.Stderr, "\x1b[2macompanhando %q (somente leitura) — Ctrl+C sai\x1b[0m\r\n", name)
-	_, err = io.Copy(os.Stdout, conn)
-	return err
+	tmuxArgs := tmuxdrv.AttachArgs(v.TerminalID, readOnly)
+	cmd := exec.Command("tmux", tmuxArgs...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return cmd.Run()
 }
 
 // ensureServer makes sure a motor is reachable at baseURL(), starting one
 // in the background (detached, logging to ~/.agentmesh/serve.log) if not.
-// This is what lets `agentmesh demo` (and any other command) be a single
-// command with nothing to set up first.
+// This is what lets `agentmesh spawn ...` (and every other command) be a
+// single command with nothing to set up first.
 func ensureServer() error {
 	if reachable() {
 		return nil
+	}
+	if err := tmuxdrv.Available(); err != nil {
+		return err
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -461,11 +419,23 @@ func reachable() bool {
 	return true
 }
 
-// sendKeys writes raw bytes straight into an agent's PTY — used to click
-// through interactive first-run screens (theme picker, trust prompt) that
-// exist before the agent ever reaches a detectable idle prompt.
-func sendKeys(name, data string) error {
-	return apiRequest("POST", "/agents/"+name+"/keys", map[string]string{"data": data}, nil)
+// sendKey sends one named tmux key (e.g. "Enter") straight into an agent's
+// session — used to click through interactive first-run screens (theme
+// picker, trust prompt) that exist before the agent ever reaches a
+// detectable idle prompt.
+func sendKey(name, key string) error {
+	return apiRequest("POST", "/agents/"+name+"/key", map[string]string{"key": key}, nil)
+}
+
+// screenOf returns the agent's current visible pane as plain text.
+func screenOf(name string) (string, error) {
+	var res struct {
+		Text string `json:"text"`
+	}
+	if err := apiRequest("GET", "/agents/"+name+"/screen", nil, &res); err != nil {
+		return "", err
+	}
+	return res.Text, nil
 }
 
 // waitStatus polls until the named agent reaches one of the wanted statuses
@@ -488,44 +458,13 @@ func waitStatus(name string, timeout time.Duration, wanted ...string) (string, e
 	return last, fmt.Errorf("timeout esperando %q chegar em %v (ficou em %q)", name, wanted, last)
 }
 
-// watchCapture dials the read-only attach socket for dur and returns
-// whatever the agent printed in that window — used to prove a message
-// actually landed on the target's screen.
-func watchCapture(name string, dur time.Duration) (string, error) {
-	conn, err := net.Dial("unix", mesh.SocketPath())
-	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
-	fmt.Fprintf(conn, "WATCH %s\n", name)
-	reply := make([]byte, 256)
-	n, err := conn.Read(reply)
-	if err != nil {
-		return "", err
-	}
-	line := strings.TrimSpace(string(reply[:n]))
-	if line != "OK" {
-		return "", fmt.Errorf("%s", strings.TrimPrefix(line, "ERR "))
-	}
-	conn.SetReadDeadline(time.Now().Add(dur))
-	var out strings.Builder
-	buf := make([]byte, 4096)
-	for {
-		n, err := conn.Read(buf)
-		if n > 0 {
-			out.Write(buf[:n])
-		}
-		if err != nil {
-			break
-		}
-	}
-	return out.String(), nil
-}
-
 func cmdDemo(args []string) error {
 	agentCmd, _ := flagValue(args, "--agent")
 	if agentCmd == "" {
 		agentCmd = "claude"
+	}
+	if err := tmuxdrv.Available(); err != nil {
+		return err
 	}
 
 	fmt.Println("== agentmesh demo ==")
@@ -568,7 +507,7 @@ func cmdDemo(args []string) error {
 				return
 			}
 			time.Sleep(1200 * time.Millisecond)
-			_ = sendKeys(name, "\r")
+			_ = sendKey(name, "Enter")
 		}
 	}
 	var wg sync.WaitGroup
@@ -583,7 +522,7 @@ func cmdDemo(args []string) error {
 	fmt.Printf("    alpha: %s   beta: %s\n", stA, stB)
 	if errA != nil || errB != nil {
 		fmt.Println("    aviso: pelo menos um não ficou pronto a tempo — tentando mesmo assim.")
-		fmt.Printf("    dica: `agentmesh attach alpha` (ou beta) pra ver a tela e destravar na mão.\n")
+		fmt.Println("    dica: `agentmesh attach alpha` (ou beta) pra ver a tela e destravar na mão.")
 	}
 
 	token := fmt.Sprintf("%d", time.Now().UnixNano()%100000)
@@ -605,9 +544,9 @@ func cmdDemo(args []string) error {
 	if err != nil {
 		fmt.Println("    handoff falhou:", err)
 	} else {
-		fmt.Println("    alpha terminou o turno. Resposta dele:")
+		fmt.Println("    alpha terminou o turno — tela dele no momento:")
 		fmt.Println("    ---")
-		for _, l := range strings.Split(strings.TrimSpace(handoffRes.Result), "\n") {
+		for _, l := range strings.Split(strings.TrimRight(handoffRes.Result, "\n"), "\n") {
 			fmt.Println("    " + l)
 		}
 		fmt.Println("    ---")
@@ -617,11 +556,12 @@ func cmdDemo(args []string) error {
 	found := false
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		seen, _ := watchCapture("beta", 3*time.Second)
-		if strings.Contains(seen, "PING-"+token) {
+		seen, err := screenOf("beta")
+		if err == nil && strings.Contains(seen, "PING-"+token) {
 			found = true
 			break
 		}
+		time.Sleep(1500 * time.Millisecond)
 	}
 	if found {
 		fmt.Println("    ✔ confirmado: a mensagem apareceu no terminal do beta — comunicação agente-a-agente funcionando.")
@@ -634,7 +574,7 @@ func cmdDemo(args []string) error {
 
 	fmt.Println()
 	fmt.Println("os dois agentes continuam rodando. pra explorar:")
-	fmt.Println("  agentmesh attach alpha    # ou beta — Ctrl+] desanexa")
+	fmt.Println("  agentmesh attach alpha    # ou beta — Ctrl+B D desanexa")
 	fmt.Println("  agentmesh ls")
 	fmt.Println("pra encerrar o teste:")
 	fmt.Println("  agentmesh kill alpha && agentmesh kill beta")

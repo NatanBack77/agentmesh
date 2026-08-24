@@ -1,26 +1,46 @@
 package mesh
 
-// turntimer.go — output-based turn detection: regex over a rolling 8KB
-// buffer + a 200ms quiescence timer decides when an agent went from
-// PROCESSING back to IDLE/COMPLETED, purely by watching its PTY output.
-// Works with any CLI tool, no cooperation required from the agent itself.
+// turntimer.go — turn detection driven by tmux, not by raw PTY bytes.
+//
+// Every OutputMonitor polls `tmux capture-pane` for its session on a short
+// tick. Because tmux does the full terminal emulation internally, what we
+// get back is exactly the rendered screen as a human would read it — no
+// ANSI stripping, no guessing at line-wrap boundaries, none of the
+// garbled-text bugs a raw-byte approach was prone to.
+//
+// Status is derived the same way as before: per-provider regexes over the
+// visible screen, gated by quiescence (the screen must stop changing for a
+// short window before a READY status is trusted) — a screen that's still
+// being redrawn, or that happens to show typed-but-not-yet-submitted text
+// sitting next to a prompt glyph, must never be mistaken for "done".
 
 import (
-	"bytes"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/NatanBack77/agentmesh/internal/tmuxdrv"
 )
 
 const (
-	quiescenceDelay  = 200 * time.Millisecond
-	rollingBufferMax = 8192
+	pollInterval    = 300 * time.Millisecond
+	quiescenceDelay = 700 * time.Millisecond
 )
 
 type statusPatterns struct {
 	idle       *regexp.Regexp
 	processing *regexp.Regexp
 	completed  *regexp.Regexp
+	// dialog matches a blocking first-run screen (trust prompt, theme
+	// picker, permission menu) that ALSO happens to contain a prompt-like
+	// "❯ " glyph next to a numbered option — which would otherwise be
+	// indistinguishable from the real idle input prompt by the idle
+	// pattern alone. When dialog matches, the screen is reported UNKNOWN
+	// (not idle) regardless of what else matches, so a caller waiting for
+	// "ready" keeps waiting — and the boot-dismiss loop in `agentmesh
+	// demo`/spawn keeps sending Enter — until the actual dialog is gone.
+	dialog *regexp.Regexp
 }
 
 func providerPatterns(p Provider) statusPatterns {
@@ -30,6 +50,7 @@ func providerPatterns(p Provider) statusPatterns {
 			idle:       regexp.MustCompile(`[>❯][\s\xa0]`),
 			processing: regexp.MustCompile(`(?m)^\s*[✶✢✽✻✳·*].*…`),
 			completed:  regexp.MustCompile(`[✶✢✽✻✳][\s\xa0]+\w.*\d+s`),
+			dialog:     regexp.MustCompile(`(?m)^\s*❯?\s*\d+\.\s|Enter to confirm|Esc to cancel|trust this folder|Security guide`),
 		}
 	case ProviderCodex:
 		return statusPatterns{
@@ -50,9 +71,7 @@ func providerPatterns(p Provider) statusPatterns {
 			completed:  regexp.MustCompile(`(?i)done|completed|\(\d+s\)`),
 		}
 	case ProviderShell:
-		return statusPatterns{
-			idle: regexp.MustCompile(`[$%#>❯]\s`),
-		}
+		return statusPatterns{idle: regexp.MustCompile(`[$%#>❯]\s`)}
 	default:
 		return statusPatterns{
 			idle:       regexp.MustCompile(`[$%#>❯]\s`),
@@ -61,95 +80,108 @@ func providerPatterns(p Provider) statusPatterns {
 	}
 }
 
-// OutputMonitor tracks the rolling output buffer and quiescence timer for a
-// single agent session and derives its status.
+// OutputMonitor polls one tmux session's visible pane and derives its
+// status. One is created per spawned agent.
 type OutputMonitor struct {
-	mu             sync.Mutex
-	buf            bytes.Buffer
-	bursting       bool
-	timer          *time.Timer
-	armedAt        time.Time
-	patterns       statusPatterns
-	onStatusChange func(detected Status)
+	sessionName string
+	patterns    statusPatterns
+
+	// onStatusChange is called (outside any lock) with the detected status
+	// and the pane text that produced it — the caller uses that text as the
+	// handoff result, so no separate output-accumulation buffer is needed.
+	onStatusChange func(Status, string)
+	// onDead is called once if the tmux session stops existing.
+	onDead func()
+
+	// suppressReady is set true by deliver() for the duration of typing a
+	// message + a short grace period after Enter. Without it, a message
+	// still sitting typed-but-unsubmitted next to the idle prompt glyph
+	// would quiesce and get mistaken for "turn finished".
+	suppressReady atomic.Bool
+
+	mu         sync.Mutex
+	lastText   string
+	lastChange time.Time
+
+	stopOnce sync.Once
+	stopCh   chan struct{}
 }
 
-func newOutputMonitor(p Provider, onChange func(Status)) *OutputMonitor {
-	return &OutputMonitor{patterns: providerPatterns(p), onStatusChange: onChange}
-}
-
-// Feed appends data to the rolling buffer and schedules detection. Called
-// on the PTY output hot path — must not block.
-func (m *OutputMonitor) Feed(data []byte) {
-	m.mu.Lock()
-	m.buf.Write(data)
-	if m.buf.Len() > rollingBufferMax {
-		m.buf.Next(m.buf.Len() - rollingBufferMax)
-	}
-	wasBursting := m.bursting
-	m.bursting = true
-
-	var snap []byte
-	if !wasBursting {
-		snap = m.snapshotLocked()
-	}
-
-	m.armedAt = time.Now()
-	if m.timer == nil {
-		m.timer = time.AfterFunc(quiescenceDelay, m.onQuiescent)
-	} else {
-		m.timer.Stop()
-		m.timer.Reset(quiescenceDelay)
-	}
-	m.mu.Unlock()
-
-	if snap != nil {
-		m.detect(snap, true)
+func newOutputMonitor(sessionName string, p Provider, onChange func(Status, string), onDead func()) *OutputMonitor {
+	return &OutputMonitor{
+		sessionName:    sessionName,
+		patterns:       providerPatterns(p),
+		onStatusChange: onChange,
+		onDead:         onDead,
+		lastChange:     time.Now(),
+		stopCh:         make(chan struct{}),
 	}
 }
 
-func (m *OutputMonitor) snapshotLocked() []byte {
-	snap := make([]byte, m.buf.Len())
-	copy(snap, m.buf.Bytes())
-	return snap
+// Start begins polling in the background.
+func (m *OutputMonitor) Start() { go m.loop() }
+
+// Stop ends polling. Safe to call more than once.
+func (m *OutputMonitor) Stop() {
+	m.stopOnce.Do(func() { close(m.stopCh) })
 }
 
-func (m *OutputMonitor) onQuiescent() {
-	m.mu.Lock()
-	if time.Since(m.armedAt) < quiescenceDelay {
-		m.mu.Unlock()
+func (m *OutputMonitor) loop() {
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.stopCh:
+			return
+		case <-ticker.C:
+			m.tick()
+		}
+	}
+}
+
+func (m *OutputMonitor) tick() {
+	text, err := tmuxdrv.CapturePane(m.sessionName)
+	if err != nil {
+		// The session is gone — the agent's process exited (or was killed
+		// outside our own Kill path) and tmux tore the session down with it.
+		if m.onDead != nil {
+			m.onDead()
+		}
 		return
 	}
-	m.bursting = false
-	snap := m.snapshotLocked()
-	m.mu.Unlock()
-	m.detect(snap, false)
-}
 
-// ResetBuffer clears the rolling window — called right after input is
-// delivered, so the previous turn's idle prompt (and the echo of what we
-// just typed) can't be mistaken for the new turn already being done.
-func (m *OutputMonitor) ResetBuffer() {
 	m.mu.Lock()
-	m.buf.Reset()
+	changed := text != m.lastText
+	if changed {
+		m.lastText = text
+		m.lastChange = time.Now()
+	}
+	quiet := time.Since(m.lastChange)
 	m.mu.Unlock()
-}
 
-// risingEdge suppresses ready statuses on a mid-burst detection: that frame
-// can be the echo of input just written, and reporting ready from it would
-// complete a handoff prematurely. Ready only comes from a quiescent screen.
-func (m *OutputMonitor) detect(buf []byte, risingEdge bool) {
-	s := m.detectStatus(buf)
-	if s == StatusUnknown {
+	if changed {
+		// Mid-redraw: only PROCESSING is trusted here. A frame captured
+		// while the screen is actively changing can be a partial redraw, or
+		// — critically — our own message sitting typed-but-not-submitted
+		// right next to a prompt glyph that would otherwise match "idle".
+		if s := m.detectStatus(text); s == StatusProcessing {
+			m.onStatusChange(s, text)
+		}
 		return
 	}
-	if risingEdge && s.isReady() {
+
+	if quiet < quiescenceDelay || m.suppressReady.Load() {
 		return
 	}
-	m.onStatusChange(s)
+	if s := m.detectStatus(text); s != StatusUnknown {
+		m.onStatusChange(s, text)
+	}
 }
 
-func (m *OutputMonitor) detectStatus(buf []byte) Status {
-	text := stripANSI(string(buf))
+func (m *OutputMonitor) detectStatus(text string) Status {
+	if m.patterns.dialog != nil && m.patterns.dialog.MatchString(text) {
+		return StatusUnknown
+	}
 	if m.patterns.processing != nil && m.patterns.processing.MatchString(text) {
 		return StatusProcessing
 	}
@@ -160,13 +192,4 @@ func (m *OutputMonitor) detectStatus(buf []byte) Status {
 		return StatusIdle
 	}
 	return StatusUnknown
-}
-
-func (m *OutputMonitor) Stop() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.armedAt = time.Now()
-	if m.timer != nil {
-		m.timer.Stop()
-	}
 }

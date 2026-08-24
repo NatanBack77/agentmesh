@@ -1,14 +1,13 @@
 package mesh
 
-// primitives.go — the four ways one agent talks to another:
+// primitives.go — the ways one agent talks to another:
 //   exec     — run a command in a SHELL agent and read its output back
 //   handoff  — blocking delegation: deliver a message, wait for the target
 //              to finish its turn, return what it produced
 //   assign   — fire-and-forget: deliver now if idle, queue if busy
-//   send     — same delivery semantics as assign, targets by exact ID
 //
-// Turn completion is detected purely from PTY output (turntimer.go) — no
-// cooperation required from the agent process itself.
+// Turn completion is detected purely from the tmux pane content
+// (turntimer.go) — no cooperation required from the agent process itself.
 
 import (
 	"context"
@@ -16,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -36,8 +34,6 @@ var (
 	ErrSelfMessage        = errors.New("mesh: cannot message yourself")
 )
 
-const handoffOutputCap = 64 * 1024
-
 type handoffState struct {
 	callerID   string
 	targetID   string
@@ -47,8 +43,6 @@ type handoffState struct {
 	result     string
 	err        error
 	armed      atomic.Bool
-	outMu      sync.Mutex
-	output     []byte
 }
 
 func (h *handoffState) complete(result string, err error) {
@@ -57,29 +51,6 @@ func (h *handoffState) complete(result string, err error) {
 		h.err = err
 		close(h.doneCh)
 	})
-}
-
-func (h *handoffState) appendOutput(data []byte) {
-	h.outMu.Lock()
-	defer h.outMu.Unlock()
-	h.output = append(h.output, data...)
-	if over := len(h.output) - handoffOutputCap; over > 0 {
-		h.output = h.output[over:]
-	}
-}
-
-func (h *handoffState) snapshotOutput() string {
-	h.outMu.Lock()
-	raw := string(h.output)
-	h.outMu.Unlock()
-	return stripANSI(raw)
-}
-
-var ansiRE = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[@-Z\\-_]`)
-
-func stripANSI(s string) string {
-	s = ansiRE.ReplaceAllString(s, "")
-	return strings.ReplaceAll(s, "\r", "")
 }
 
 type handoffStore struct {
@@ -140,32 +111,36 @@ func (s *handoffStore) wouldDeadlock(callerID, targetID string) bool {
 	return false
 }
 
-// Primitives implements handoff/assign/send/exec over a Registry.
+// Primitives implements handoff/assign/exec over a Registry. deliver is
+// injected by the engine: it types a message into an agent's tmux session
+// and presses Enter, suppressing false-ready detection while it does.
 type Primitives struct {
 	registry *Registry
-	writePTY func(sessionID string, data []byte) error
+	deliver  func(terminalID, message string) error
+	// suppress arms/disarms the target's ready-detection. MUST be turned on
+	// before the status is ever touched (notifyInputSent) — a tick landing
+	// in the gap between "status forced to processing" and "suppression
+	// active" can see the still-unchanged screen, decide it already looks
+	// idle again (sticky latch was just cleared), and complete the
+	// handoff/assign with stale pre-delivery text. Turning suppress on
+	// first closes that window entirely.
+	suppress func(terminalID string, on bool)
 	handoffs *handoffStore
 
 	maxDepth   int
 	handoffTTL time.Duration
 
-	onInputDelivered func(terminalID string)
-	onFlow           func(sourceID, targetID, kind string)
+	onFlow func(sourceID, targetID, kind string)
 }
 
-func NewPrimitives(registry *Registry, writePTY func(string, []byte) error, maxDepth int, handoffTTL time.Duration) *Primitives {
+func NewPrimitives(registry *Registry, deliver func(string, string) error, suppress func(string, bool), maxDepth int, handoffTTL time.Duration) *Primitives {
 	return &Primitives{
 		registry:   registry,
-		writePTY:   writePTY,
+		deliver:    deliver,
+		suppress:   suppress,
 		handoffs:   newHandoffStore(),
 		maxDepth:   maxDepth,
 		handoffTTL: handoffTTL,
-	}
-}
-
-func (h *Primitives) inputDelivered(id string) {
-	if h.onInputDelivered != nil {
-		h.onInputDelivered(id)
 	}
 }
 
@@ -255,7 +230,7 @@ type handoffResponse struct {
 }
 
 // DoHandoff blocks until target becomes ready after receiving message, then
-// returns what it produced.
+// returns the pane text that produced that ready detection.
 func (h *Primitives) DoHandoff(ctx context.Context, callerID string, req handoffRequest) (handoffResponse, int) {
 	target, err := h.resolveTarget(req.TargetName)
 	if err != nil {
@@ -273,7 +248,6 @@ func (h *Primitives) DoHandoff(ctx context.Context, callerID string, req handoff
 
 	target.mu.Lock()
 	targetID := target.TerminalID
-	targetSID := target.SessionID
 	target.mu.Unlock()
 
 	if err := h.validateChain(callerID, targetID, callerDepth); err != nil {
@@ -303,6 +277,7 @@ func (h *Primitives) DoHandoff(ctx context.Context, callerID string, req handoff
 		return handoffResponse{Success: false, TerminalID: targetID, Error: err.Error()}, http.StatusGatewayTimeout
 	}
 
+	h.suppress(targetID, true)
 	target.mu.Lock()
 	target.ChainDepth = callerDepth + 1
 	target.ParentTerminalID = callerID
@@ -311,10 +286,13 @@ func (h *Primitives) DoHandoff(ctx context.Context, callerID string, req handoff
 
 	hs.armed.Store(true)
 
-	if err := deliverToPTY(h.writePTY, targetSID, req.Message); err != nil {
-		return handoffResponse{Success: false, TerminalID: targetID, Error: fmt.Sprintf("write PTY: %v", err)}, http.StatusInternalServerError
+	err = h.deliver(targetID, req.Message)
+	// Stay suppressed a little past delivery: the pane can look briefly
+	// quiet right after Enter, before the agent's own redraw kicks in.
+	time.AfterFunc(300*time.Millisecond, func() { h.suppress(targetID, false) })
+	if err != nil {
+		return handoffResponse{Success: false, TerminalID: targetID, Error: fmt.Sprintf("deliver: %v", err)}, http.StatusInternalServerError
 	}
-	h.inputDelivered(targetID)
 	h.notifyFlow(callerID, targetID, "handoff")
 
 	select {
@@ -378,26 +356,14 @@ func waitTargetReady(ctx context.Context, target *AgentState) error {
 	}
 }
 
-// NotifyReady unblocks any waiting ARMED handoff for terminalID.
-func (h *Primitives) NotifyReady(terminalID, fallback string) {
+// NotifyReady unblocks any waiting ARMED handoff for terminalID with the
+// pane text captured at the moment readiness was detected.
+func (h *Primitives) NotifyReady(terminalID, text string) {
 	hs, ok := h.handoffs.get(terminalID)
 	if !ok || !hs.armed.Load() {
 		return
 	}
-	out := hs.snapshotOutput()
-	if out == "" {
-		out = fallback
-	}
-	hs.complete(out, nil)
-}
-
-// CaptureOutput feeds target output into its in-flight handoff buffer.
-func (h *Primitives) CaptureOutput(terminalID string, data []byte) {
-	hs, ok := h.handoffs.get(terminalID)
-	if !ok || !hs.armed.Load() {
-		return
-	}
-	hs.appendOutput(data)
+	hs.complete(text, nil)
 }
 
 // NotifyDead unblocks any waiting handoff with ErrTargetDead.
@@ -428,7 +394,6 @@ func (h *Primitives) DoAssign(callerID string, req assignRequest) (assignRespons
 
 	target.mu.Lock()
 	targetID := target.TerminalID
-	targetSID := target.SessionID
 	targetStatus := target.Status
 	if callerID != "" {
 		target.ParentTerminalID = callerID
@@ -436,13 +401,15 @@ func (h *Primitives) DoAssign(callerID string, req assignRequest) (assignRespons
 	target.mu.Unlock()
 
 	if targetStatus.isReady() {
+		h.suppress(targetID, true)
 		target.mu.Lock()
 		target.notifyInputSent()
 		target.mu.Unlock()
-		if err := deliverToPTY(h.writePTY, targetSID, req.Message); err != nil {
-			return assignResponse{Success: false, TerminalID: targetID, Error: fmt.Sprintf("write PTY: %v", err)}, http.StatusInternalServerError
+		err := h.deliver(targetID, req.Message)
+		time.AfterFunc(300*time.Millisecond, func() { h.suppress(targetID, false) })
+		if err != nil {
+			return assignResponse{Success: false, TerminalID: targetID, Error: fmt.Sprintf("deliver: %v", err)}, http.StatusInternalServerError
 		}
-		h.inputDelivered(targetID)
 		h.notifyFlow(callerID, targetID, "message")
 		return assignResponse{Success: true, TerminalID: targetID, Acknowledged: true}, http.StatusOK
 	}
@@ -450,25 +417,6 @@ func (h *Primitives) DoAssign(callerID string, req assignRequest) (assignRespons
 	enqueueInbox(target, callerID, req.Message)
 	h.notifyFlow(callerID, targetID, "message")
 	return assignResponse{Success: true, TerminalID: targetID, Acknowledged: true}, http.StatusAccepted
-}
-
-// deliverToPTY writes text then a real Enter keypress (TUI agents don't
-// submit on plain "\n"). Settle time scales with message length so a busy
-// TUI still ingesting the paste doesn't eat the Enter as a newline; the
-// second Enter is a no-op safety net if the first already submitted.
-func deliverToPTY(writePTY func(string, []byte) error, sessionID, message string) error {
-	text := strings.TrimRight(message, "\r\n")
-	if err := writePTY(sessionID, []byte(text)); err != nil {
-		return err
-	}
-	settle := 150*time.Millisecond + time.Duration(len(text)/20)*time.Millisecond
-	settle = min(settle, 1200*time.Millisecond)
-	time.Sleep(settle)
-	if err := writePTY(sessionID, []byte("\r")); err != nil {
-		return err
-	}
-	time.Sleep(400 * time.Millisecond)
-	return writePTY(sessionID, []byte("\r"))
 }
 
 func enqueueInbox(ps *AgentState, senderID, body string) {
@@ -479,7 +427,7 @@ func enqueueInbox(ps *AgentState, senderID, body string) {
 }
 
 // drainInbox delivers all queued inbox messages once the target goes ready.
-func drainInbox(ps *AgentState, writePTY func(string, []byte) error, onDelivered func()) {
+func drainInbox(ps *AgentState, deliver func(string, string) error, suppress func(string, bool), onDelivered func()) {
 	ps.mu.Lock()
 	if len(ps.InboxQueue) == 0 {
 		ps.mu.Unlock()
@@ -487,13 +435,15 @@ func drainInbox(ps *AgentState, writePTY func(string, []byte) error, onDelivered
 	}
 	msgs := ps.InboxQueue
 	ps.InboxQueue = []Message{}
-	sessionID := ps.SessionID
+	id := ps.TerminalID
+	suppress(id, true)
 	ps.notifyInputSent()
 	ps.mu.Unlock()
 
 	for _, m := range msgs {
-		_ = deliverToPTY(writePTY, sessionID, m.Body)
+		_ = deliver(id, m.Body)
 	}
+	time.AfterFunc(300*time.Millisecond, func() { suppress(id, false) })
 	if onDelivered != nil {
 		onDelivered()
 	}
