@@ -23,6 +23,32 @@ func (e *Engine) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /primitives/handoff", e.handleHandoff)
 	mux.HandleFunc("POST /primitives/exec", e.handleExec)
 	mux.HandleFunc("POST /primitives/assign", e.handleAssign)
+
+	mux.HandleFunc("POST /agents/{id}/keys", e.handleRawKeys)
+}
+
+// handleRawKeys writes raw bytes straight to an agent's PTY, bypassing every
+// turn-status gate assign/handoff have. Used to script past interactive
+// first-run screens (theme picker, trust prompt) that block before the
+// agent ever reaches an IDLE prompt the normal primitives could target.
+func (e *Engine) handleRawKeys(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Data string `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	sessionID, err := e.ResolveSession(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := e.WritePTY(sessionID, []byte(req.Data)); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 type agentView struct {

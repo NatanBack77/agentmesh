@@ -66,10 +66,34 @@ systemctl --user status agentmesh
 journalctl --user -u agentmesh -f
 ```
 
+## Teste automático (um comando só)
+
+```bash
+agentmesh demo
+```
+
+Sobe o motor sozinho se ele não estiver rodando, spawna duas sessões
+`claude` de verdade em diretórios isolados, passa pelas telas de boot
+(tema/confiança) sem você apertar nada, espera as duas ficarem prontas,
+manda uma instruir a outra a chamar `agentmesh send` sozinha (via a
+ferramenta Bash dela — comunicação real entre agentes, não simulada), e
+confirma que a mensagem chegou na tela da segunda. No fim deixa as duas
+rodando pra você explorar (`agentmesh attach alpha`) ou `agentmesh kill`
+pra encerrar. Use `--agent codex` (ou outro provider) pra testar com outra
+CLI no lugar de `claude`.
+
+Nota: a detecção de "o agente terminou o turno" é feita por regex sobre a
+tela (não existe API oficial pra isso em nenhum desses CLIs) — às vezes ela
+acerta cedo demais ou tarde demais. O `demo` já tolera isso esperando mais
+um pouco antes de desistir; se ainda assim não confirmar, rode
+`agentmesh attach beta` pra ver a tela com os próprios olhos.
+
 ## Uso
 
 ```bash
-# 1. sobe o motor (deixe rodando num terminal, ou em background)
+# 1. sobe o motor (deixe rodando num terminal, ou em background —
+#    ou nem precisa: qualquer outro comando do agentmesh sobe um sozinho
+#    se não encontrar um rodando)
 agentmesh serve &
 
 # 2. spawna os agentes
