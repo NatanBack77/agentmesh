@@ -19,10 +19,51 @@ API HTTP local (loopback, `127.0.0.1`) com as primitivas de comunicação.
 Todo agente registrado é peer de todos os outros — não existe passo de
 "desenhar uma seta" como no Openfield: é uma malha (mesh) plana.
 
-## Instalar
+## Instalar numa máquina nova
+
+Pré-requisito: [Go](https://go.dev/dl/) 1.21+ instalado (`go version` pra
+conferir). Este repositório é privado — quem for instalar precisa ter
+acesso a ele (te peça pra adicionar como colaborador, ou use um token/chave
+SSH sua já autorizada).
 
 ```bash
-go build -o ~/.local/bin/agentmesh ./cmd/agentmesh
+git clone git@github.com:NatanBack77/agentmesh.git
+cd agentmesh
+./scripts/install.sh
+```
+
+O script compila e coloca o binário em `~/.local/bin/agentmesh`. Se
+`~/.local/bin` não estiver no `PATH`, ele avisa e mostra a linha pra
+adicionar no `~/.bashrc`/`~/.zshrc`. Sem acesso à internet pra clonar mas
+com o binário já compilado em outra máquina Linux/amd64 equivalente, basta
+copiar o arquivo `~/.local/bin/agentmesh` — é um binário estático, sem
+instalador.
+
+Depois de instalado, confirme:
+
+```bash
+agentmesh --help
+```
+
+### Deixar o motor sempre rodando (opcional)
+
+Por padrão `agentmesh serve` roda em primeiro plano (ou em background com
+`&`) só enquanto o terminal/sessão existir. Pra manter rodando o tempo todo
+sem depender de terminal aberto, existe uma unidade systemd de usuário
+pronta em `scripts/agentmesh.service`:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp scripts/agentmesh.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now agentmesh
+
+# opcional: sobreviver a reboot mesmo sem login gráfico/SSH ativo
+loginctl enable-linger "$USER"
+
+# conferir
+systemctl --user status agentmesh
+journalctl --user -u agentmesh -f
 ```
 
 ## Uso

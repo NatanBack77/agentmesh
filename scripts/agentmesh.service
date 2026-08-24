@@ -1,0 +1,24 @@
+# Unidade systemd --user opcional, pra deixar o motor rodando sempre em
+# segundo plano (sobrevive a fechar o terminal; não sobrevive a reboot a
+# menos que você habilite linger — veja o README).
+#
+# Instalar:
+#   mkdir -p ~/.config/systemd/user
+#   cp scripts/agentmesh.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now agentmesh
+#
+# Ver logs:
+#   journalctl --user -u agentmesh -f
+
+[Unit]
+Description=agentmesh — motor local de comunicação entre agentes
+After=network.target
+
+[Service]
+ExecStart=%h/.local/bin/agentmesh serve --port 8990
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
