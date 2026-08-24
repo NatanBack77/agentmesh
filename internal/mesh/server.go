@@ -24,6 +24,7 @@ func (e *Engine) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /primitives/handoff", e.handleHandoff)
 	mux.HandleFunc("POST /primitives/exec", e.handleExec)
 	mux.HandleFunc("POST /primitives/assign", e.handleAssign)
+	mux.HandleFunc("POST /primitives/broadcast", e.handleBroadcast)
 
 	mux.HandleFunc("POST /agents/{id}/key", e.handleSendKey)
 	mux.HandleFunc("GET /agents/{id}/screen", e.handleScreen)
@@ -38,6 +39,7 @@ type agentView struct {
 	Status     string `json:"status"`
 	ParentID   string `json:"parent_id,omitempty"`
 	ChainDepth int    `json:"chain_depth"`
+	Attention  bool   `json:"attention"`
 }
 
 func viewOf(ps *AgentState) agentView {
@@ -52,6 +54,7 @@ func viewOf(ps *AgentState) agentView {
 		Status:     ps.Status.String(),
 		ParentID:   ps.ParentTerminalID,
 		ChainDepth: ps.ChainDepth,
+		Attention:  ps.NeedsAttention,
 	}
 }
 
@@ -61,12 +64,13 @@ func (e *Engine) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		Command string   `json:"command"`
 		Args    []string `json:"args"`
 		CWD     string   `json:"cwd"`
+		Role    string   `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	res, err := e.Spawn(SpawnRequest{Name: req.Name, Command: req.Command, Args: req.Args, CWD: req.CWD})
+	res, err := e.Spawn(SpawnRequest{Name: req.Name, Command: req.Command, Args: req.Args, CWD: req.CWD, Role: req.Role})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -160,6 +164,17 @@ func (e *Engine) handleAssign(w http.ResponseWriter, r *http.Request) {
 	}
 	callerID := r.Header.Get("X-AgentMesh-Terminal-ID")
 	resp, code := e.primitives.DoAssign(callerID, req)
+	writeJSON(w, code, resp)
+}
+
+func (e *Engine) handleBroadcast(w http.ResponseWriter, r *http.Request) {
+	var req broadcastRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, broadcastResponse{})
+		return
+	}
+	callerID := r.Header.Get("X-AgentMesh-Terminal-ID")
+	resp, code := e.primitives.DoBroadcast(callerID, req)
 	writeJSON(w, code, resp)
 }
 

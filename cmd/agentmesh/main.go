@@ -31,6 +31,7 @@ import (
 
 	"github.com/NatanBack77/agentmesh/internal/mesh"
 	"github.com/NatanBack77/agentmesh/internal/tmuxdrv"
+	usagepkg "github.com/NatanBack77/agentmesh/internal/usage"
 )
 
 func main() {
@@ -47,7 +48,8 @@ func main() {
 	// ficam de fora. É isto que deixa `agentmesh spawn ...` funcionar de
 	// primeira sem exigir `agentmesh serve &` manual antes.
 	switch cmd {
-	case "serve", "-h", "--help", "help":
+	case "serve", "-h", "--help", "help", "usage", "cost":
+		// "usage"/"cost" read local transcript files directly — no motor needed.
 	default:
 		if err := ensureServer(); err != nil {
 			fmt.Fprintln(os.Stderr, "agentmesh:", err)
@@ -64,6 +66,8 @@ func main() {
 		err = cmdList(args)
 	case "send", "assign":
 		err = cmdSend(args)
+	case "broadcast":
+		err = cmdBroadcast(args)
 	case "handoff":
 		err = cmdHandoff(args)
 	case "exec":
@@ -78,6 +82,8 @@ func main() {
 		err = cmdAttachOrWatch(args, true)
 	case "demo":
 		err = cmdDemo(args)
+	case "usage", "cost":
+		err = cmdUsage(args)
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -96,9 +102,10 @@ func usage() {
 	fmt.Print(`agentmesh — motor local de comunicação entre agentes (roda sobre tmux)
 
   agentmesh serve [--port N]                    inicia o motor (fica em foreground)
-  agentmesh spawn NOME COMANDO [ARGS...] [--cwd DIR]
-  agentmesh ls | peers                          lista agentes rodando
+  agentmesh spawn NOME COMANDO [ARGS...] [--cwd DIR] [--role "instrução"]
+  agentmesh ls | peers                          lista agentes rodando (⚠ = esperando confirmação numa tela)
   agentmesh send NOME "mensagem"                 manda mensagem (não bloqueia)
+  agentmesh broadcast "mensagem"                 manda pra TODOS os outros agentes
   agentmesh handoff NOME "tarefa" [--timeout S]  delega e espera o resultado
   agentmesh exec SHELL "comando"                 roda comando num agente shell e lê a saída
   agentmesh whoami                               identidade do agente atual (usa $AGENTMESH_TERMINAL_ID)
@@ -108,6 +115,7 @@ func usage() {
   agentmesh demo [--agent claude|codex]          teste automático: sobe o motor,
                                                   spawna 2 agentes de verdade e faz
                                                   um mandar mensagem pro outro sozinho
+  agentmesh usage [--days N]                     custo/tokens do Claude Code (hoje + últimos N dias, default 7)
 
 Requer tmux instalado. Variáveis de ambiente: AGENTMESH_URL (default
 http://127.0.0.1:8990), AGENTMESH_TERMINAL_ID (identidade do agente que
@@ -199,8 +207,9 @@ func cmdServe(args []string) error {
 
 func cmdSpawn(args []string) error {
 	cwd, args := flagValue(args, "--cwd")
+	role, args := flagValue(args, "--role")
 	if len(args) < 2 {
-		return fmt.Errorf("uso: agentmesh spawn NOME COMANDO [ARGS...] [--cwd DIR]")
+		return fmt.Errorf("uso: agentmesh spawn NOME COMANDO [ARGS...] [--cwd DIR] [--role \"instrução\"]")
 	}
 	name, command, rest := args[0], args[1], args[2:]
 
@@ -220,7 +229,7 @@ func cmdSpawn(args []string) error {
 	}
 	var res mesh.SpawnResult
 	err := apiRequest("POST", "/spawn", map[string]any{
-		"name": name, "command": command, "args": rest, "cwd": cwd,
+		"name": name, "command": command, "args": rest, "cwd": cwd, "role": role,
 	}, &res)
 	if err != nil {
 		return err
@@ -238,6 +247,7 @@ type agentView struct {
 	Status     string `json:"status"`
 	ParentID   string `json:"parent_id,omitempty"`
 	ChainDepth int    `json:"chain_depth"`
+	Attention  bool   `json:"attention"`
 }
 
 func cmdList(args []string) error {
@@ -249,9 +259,18 @@ func cmdList(args []string) error {
 		fmt.Println("(nenhum agente rodando)")
 		return nil
 	}
-	fmt.Printf("%-14s %-10s %-11s %-6s %s\n", "NOME", "PROVIDER", "STATUS", "PROF.", "CWD")
+	fmt.Printf("%-3s %-14s %-10s %-11s %-6s %s\n", "", "NOME", "PROVIDER", "STATUS", "PROF.", "CWD")
 	for _, v := range views {
-		fmt.Printf("%-14s %-10s %-11s %-6d %s\n", v.Name, v.Provider, v.Status, v.ChainDepth, v.CWD)
+		mark := ""
+		if v.Attention {
+			mark = "⚠"
+		}
+		fmt.Printf("%-3s %-14s %-10s %-11s %-6d %s\n", mark, v.Name, v.Provider, v.Status, v.ChainDepth, v.CWD)
+	}
+	for _, v := range views {
+		if v.Attention {
+			fmt.Printf("\n⚠ %q está esperando confirmação numa tela (diálogo) — `agentmesh attach %s`\n", v.Name, v.Name)
+		}
 	}
 	return nil
 }
@@ -272,6 +291,24 @@ func cmdSend(args []string) error {
 		return err
 	}
 	fmt.Println("entregue.")
+	return nil
+}
+
+func cmdBroadcast(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("uso: agentmesh broadcast \"mensagem\"")
+	}
+	var res struct {
+		Sent []string `json:"sent"`
+	}
+	if err := apiRequest("POST", "/primitives/broadcast", map[string]string{"message": args[0]}, &res); err != nil {
+		return err
+	}
+	if len(res.Sent) == 0 {
+		fmt.Println("nenhum outro agente rodando pra receber.")
+		return nil
+	}
+	fmt.Printf("entregue pra: %s\n", strings.Join(res.Sent, ", "))
 	return nil
 }
 
@@ -456,6 +493,72 @@ func waitStatus(name string, timeout time.Duration, wanted ...string) (string, e
 		time.Sleep(400 * time.Millisecond)
 	}
 	return last, fmt.Errorf("timeout esperando %q chegar em %v (ficou em %q)", name, wanted, last)
+}
+
+// cmdUsage reports real token usage + estimated cost by reading Claude
+// Code's own transcripts directly — no motor involved, works even if
+// `agentmesh serve` isn't running, and covers ALL Claude Code usage on
+// this machine (not just agents spawned through agentmesh).
+func cmdUsage(args []string) error {
+	daysStr, args := flagValue(args, "--days")
+	oneline := false
+	for _, a := range args {
+		if a == "--oneline" {
+			oneline = true
+		}
+	}
+	days := 7
+	if daysStr != "" {
+		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
+			days = d
+		}
+	}
+	rep, err := usagepkg.Scan(days)
+	if err != nil {
+		if oneline {
+			return nil // status bar: fail silently, never show a stack trace in the footer
+		}
+		return err
+	}
+
+	if oneline {
+		// Compact single line for tmux's status-right (see
+		// tmuxdrv.SetStatusBar) — every agentmesh-spawned claude session
+		// shows this in its own footer, refreshed by tmux every 20s.
+		fmt.Printf("💰 hoje $%.2f (%s) · %dd $%.2f", rep.Today.CostUSD, fmtTokens(rep.Today), days, rep.Week.CostUSD)
+		return nil
+	}
+
+	fmt.Println("Uso do Claude Code neste computador (lido de ~/.claude/projects) — custo é estimativa direcional, não é fatura.")
+	fmt.Println()
+	fmt.Printf("Hoje:            %s tokens · $%.2f\n", fmtTokens(rep.Today), rep.Today.CostUSD)
+	fmt.Printf("Últimos %d dias:  %s tokens · $%.2f\n", days, fmtTokens(rep.Week), rep.Week.CostUSD)
+
+	if len(rep.Days) > 1 {
+		fmt.Println("\nPor dia:")
+		for _, d := range rep.Days {
+			fmt.Printf("  %s  %10s tokens   $%.2f\n", d.Date, fmtTokens(d.Totals), d.Totals.CostUSD)
+		}
+	}
+	if len(rep.ByModel) > 0 {
+		fmt.Println("\nPor modelo (período todo):")
+		for model, t := range rep.ByModel {
+			fmt.Printf("  %-28s %10s tokens   $%.2f\n", model, fmtTokens(t), t.CostUSD)
+		}
+	}
+	return nil
+}
+
+func fmtTokens(t usagepkg.Totals) string {
+	total := t.InputTokens + t.OutputTokens + t.CacheReadTokens + t.CacheWriteTokens
+	switch {
+	case total >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(total)/1_000_000)
+	case total >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(total)/1_000)
+	default:
+		return fmt.Sprintf("%d", total)
+	}
 }
 
 func cmdDemo(args []string) error {

@@ -135,10 +135,20 @@ então um `claude` pode chamar `agentmesh peers` / `agentmesh send` /
 diretório de trabalho de cada agente — uma lista simples de quem mais está
 rodando, legível por qualquer ferramenta de leitura de arquivo.
 
+## Qualquer modelo de IA, não só os quatro citados acima
+
+`claude`/`codex`/`gemini`/`opencode` só ganham detecção de turno afinada
+(regex específico pro jeito que cada um desenha o prompt). Qualquer OUTRO
+comando funciona igual, sem lista de permissão nenhuma — `agentmesh spawn
+nome qualquer-cli-no-path` cai num padrão genérico de prompt (`$`/`>`/`❯`).
+Se você tiver um CLI de IA diferente instalado, já dá pra usar hoje.
+
 ## Primitivas
 
 - **`send`** — entrega a mensagem agora (se o agente estiver ocioso) ou
   enfileira (se estiver processando); não bloqueia quem chamou.
+- **`broadcast`** — igual ao `send`, mas manda pra TODOS os outros agentes
+  registrados de uma vez.
 - **`handoff`** — entrega a mensagem, espera o agente terminar o turno, e
   devolve o que ele produziu. Bloqueante, com timeout configurável e
   detecção de deadlock/ciclo na cadeia de delegação.
@@ -147,11 +157,52 @@ rodando, legível por qualquer ferramenta de leitura de arquivo.
   comando "no terminal visível do usuário" sem escrever na entrada de
   outro agente.
 
+## `--role`: dar uma persona ao agente já no spawn
+
+```bash
+agentmesh spawn revisor claude --role "Você revisa código em busca de bugs de segurança. Nunca escreva código novo, só aponte problemas."
+```
+
+O texto é entregue como a primeira mensagem do agente, assim que ele sai
+das telas de boot — funciona pra qualquer provider (não só claude).
+
+## Diagnóstico: "⚠ precisa de atenção"
+
+`agentmesh ls` marca com `⚠` qualquer agente cuja tela bata com um diálogo
+bloqueante conhecido do Claude Code (confiança de pasta, menu de permissão)
+— sinal de que ninguém confirmou aquilo ainda. `agentmesh attach NOME`
+resolve na hora. (Hoje só reconhece os diálogos do Claude Code; outros
+providers ainda não têm esse padrão mapeado.)
+
 ## Variáveis de ambiente
 
 - `AGENTMESH_URL` — onde falar com o motor (default `http://127.0.0.1:8990`).
 - `AGENTMESH_TERMINAL_ID` — identidade de quem está chamando a CLI; setada
   automaticamente nos agentes que o próprio `agentmesh spawn` cria.
+
+## Custo (tokens/$) — diário e semanal
+
+```bash
+agentmesh usage             # hoje + últimos 7 dias, por dia e por modelo
+agentmesh usage --days 30   # janela maior
+```
+
+Lê direto os transcripts que o **Claude Code já grava sozinho** em
+`~/.claude/projects/**/*.jsonl` — não precisa do motor rodando, e cobre
+TODO uso de Claude Code na máquina, não só os agentes que o agentmesh
+spawnou. Custo é estimativa (tabela de preço fixa no código, não é
+integração de billing) — direcional, não é fatura.
+
+**Todo agente `claude` spawnado já nasce com isso no rodapé do próprio
+terminal** (a barra de status do tmux, `agentmesh usage --oneline`,
+atualizada sozinha a cada 20s pelo tmux) — não precisa abrir nada separado,
+é só `agentmesh attach nome` e olhar o rodapé.
+
+**codex/gemini/opencode ainda não têm isso** — cada um grava uso num
+formato de log diferente e nenhum estava instalado nesta máquina pra eu
+testar contra dado real antes de shipar (regra do projeto: nada entra sem
+ter sido verificado contra o CLI de verdade). Fica como próximo passo
+quando alguém tiver um desses configurado.
 
 ## Custo de recursos
 

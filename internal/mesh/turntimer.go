@@ -92,6 +92,11 @@ type OutputMonitor struct {
 	onStatusChange func(Status, string)
 	// onDead is called once if the tmux session stops existing.
 	onDead func()
+	// onDialog is called on EVERY tick with whether a known blocking
+	// dialog (trust prompt, permission menu, ...) currently matches — a
+	// signal independent of Status, used to flag "needs your attention" in
+	// `agentmesh ls` even when the underlying status stays UNKNOWN.
+	onDialog func(bool)
 
 	// suppressReady is set true by deliver() for the duration of typing a
 	// message + a short grace period after Enter. Without it, a message
@@ -107,12 +112,13 @@ type OutputMonitor struct {
 	stopCh   chan struct{}
 }
 
-func newOutputMonitor(sessionName string, p Provider, onChange func(Status, string), onDead func()) *OutputMonitor {
+func newOutputMonitor(sessionName string, p Provider, onChange func(Status, string), onDead func(), onDialog func(bool)) *OutputMonitor {
 	return &OutputMonitor{
 		sessionName:    sessionName,
 		patterns:       providerPatterns(p),
 		onStatusChange: onChange,
 		onDead:         onDead,
+		onDialog:       onDialog,
 		lastChange:     time.Now(),
 		stopCh:         make(chan struct{}),
 	}
@@ -148,6 +154,10 @@ func (m *OutputMonitor) tick() {
 			m.onDead()
 		}
 		return
+	}
+
+	if m.onDialog != nil {
+		m.onDialog(m.patterns.dialog != nil && m.patterns.dialog.MatchString(text))
 	}
 
 	m.mu.Lock()

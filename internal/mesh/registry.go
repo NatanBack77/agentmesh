@@ -118,6 +118,16 @@ type AgentState struct {
 	ChainDepth       int
 	ParentTerminalID string
 
+	// NeedsAttention is true while a known blocking dialog (permission
+	// menu, trust prompt, ...) is showing on the agent's screen — surfaced
+	// in `agentmesh ls` so you know to `attach` and press something.
+	NeedsAttention bool
+
+	// BootHintSent guards the one-time delivery of the peers/coordination
+	// hint (and --role text, if any) once the agent leaves its boot
+	// screens for the first time. See Engine.deliverBootHint.
+	BootHintSent bool
+
 	InboxQueue []Message
 
 	stickyReady bool

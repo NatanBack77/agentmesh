@@ -89,6 +89,23 @@ func SendKey(sessionName, key string) error {
 	return err
 }
 
+// SetStatusBar points a session's status-right at `agentmesh usage
+// --oneline`, refreshed periodically — this is the "custo ao vivo, no
+// rodapé do terminal" panel: tmux already re-runs a `#(...)` command on its
+// own schedule, so no extra process or polling loop is needed on
+// agentmesh's side. Best-effort: a session someone customized by hand
+// isn't worth failing the spawn over.
+func SetStatusBar(sessionName string) error {
+	if _, err := run("set-option", "-t", sessionName, "status-interval", "20"); err != nil {
+		return err
+	}
+	if _, err := run("set-option", "-t", sessionName, "status-right-length", "60"); err != nil {
+		return err
+	}
+	_, err := run("set-option", "-t", sessionName, "status-right", "#(agentmesh usage --oneline 2>/dev/null)")
+	return err
+}
+
 // AttachArgs returns the argv (without the leading "tmux") to exec for an
 // interactive attach. readOnly uses tmux's own read-only client mode
 // (`-r`) — no custom protocol needed, tmux enforces it natively.

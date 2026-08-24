@@ -419,6 +419,34 @@ func (h *Primitives) DoAssign(callerID string, req assignRequest) (assignRespons
 	return assignResponse{Success: true, TerminalID: targetID, Acknowledged: true}, http.StatusAccepted
 }
 
+type broadcastRequest struct {
+	Message string `json:"message"`
+}
+
+type broadcastResponse struct {
+	Success bool     `json:"success"`
+	Sent    []string `json:"sent"` // agent names it was delivered/queued to
+}
+
+// DoBroadcast sends message to every OTHER registered agent — same
+// delivery semantics as assign (now if idle, queued if busy) applied to
+// the whole mesh at once.
+func (h *Primitives) DoBroadcast(callerID string, req broadcastRequest) (broadcastResponse, int) {
+	sent := make([]string, 0)
+	for _, ps := range h.registry.All() {
+		ps.mu.Lock()
+		id, name := ps.TerminalID, ps.AgentName
+		ps.mu.Unlock()
+		if id == callerID {
+			continue
+		}
+		if _, code := h.DoAssign(callerID, assignRequest{TargetName: id, Message: req.Message}); code < 400 {
+			sent = append(sent, name)
+		}
+	}
+	return broadcastResponse{Success: true, Sent: sent}, http.StatusOK
+}
+
 func enqueueInbox(ps *AgentState, senderID, body string) {
 	msg := Message{ID: uuid.New().String(), SenderID: senderID, ReceiverID: ps.TerminalID, Body: body, CreatedAt: time.Now()}
 	ps.mu.Lock()

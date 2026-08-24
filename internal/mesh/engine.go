@@ -46,6 +46,9 @@ type Engine struct {
 	monitorsMu sync.Mutex
 	monitors   map[string]*OutputMonitor // terminalID -> monitor
 
+	bootMu    sync.Mutex
+	bootHints map[string]string // terminalID -> first-message to deliver once past boot
+
 	httpSrv *http.Server
 	addr    string
 	port    int
@@ -53,8 +56,9 @@ type Engine struct {
 
 func New(cfg Config) *Engine {
 	e := &Engine{
-		registry: &Registry{},
-		monitors: make(map[string]*OutputMonitor),
+		registry:  &Registry{},
+		monitors:  make(map[string]*OutputMonitor),
+		bootHints: make(map[string]string),
 	}
 	e.primitives = NewPrimitives(e.registry, e.deliver, e.suppress, cfg.maxDepth(), cfg.handoffTTL())
 	e.primitives.onFlow = func(src, tgt, kind string) {
@@ -116,6 +120,10 @@ type SpawnRequest struct {
 	Command string
 	Args    []string
 	CWD     string
+	// Role, when set, is delivered as the agent's first message once it
+	// leaves its boot screens — a persona/instruction injected at spawn
+	// time, mirroring Openfield's role system. Works for any provider.
+	Role string
 }
 
 // SpawnResult is returned to the caller after a successful spawn.
@@ -152,12 +160,20 @@ func (e *Engine) Spawn(req SpawnRequest) (SpawnResult, error) {
 
 	args := req.Args
 	if provider == ProviderClaudeCode {
-		hint := "Você pode coordenar com outros agentes via a CLI `agentmesh` (já no PATH, e as variáveis AGENTMESH_TERMINAL_ID/AGENTMESH_URL já estão no seu ambiente). Rode `agentmesh peers` pra listar quem mais está rodando, `agentmesh send <peer> \"mensagem\"` pra mandar mensagem sem esperar resposta, `agentmesh handoff <peer> \"tarefa\"` pra delegar e esperar o resultado, `agentmesh exec <peer> \"comando\"` pra rodar comando num peer shell. Use `agentmesh whoami` pra saber quem você é."
-		args = append([]string{"--append-system-prompt", hint}, args...)
+		// Claude Code supports handing it system-level context at spawn —
+		// use that, it's the most reliable delivery (present from the very
+		// first token, never racing the boot screens).
+		args = append([]string{"--append-system-prompt", coordinationHint}, args...)
 	}
 
 	if err := tmuxdrv.NewSession(terminalID, cwd, req.Command, args, env); err != nil {
 		return SpawnResult{}, err
+	}
+	if provider == ProviderClaudeCode {
+		// Live cost panel in the session's own footer — see
+		// SetStatusBar/`agentmesh usage --oneline`. Best-effort: usage
+		// tracking is a nicety, not worth failing a spawn over.
+		_ = tmuxdrv.SetStatusBar(terminalID)
 	}
 
 	ps, err := e.registry.Register(terminalID, req.Name, cwd, req.Command, provider)
@@ -166,9 +182,31 @@ func (e *Engine) Spawn(req SpawnRequest) (SpawnResult, error) {
 		return SpawnResult{}, err
 	}
 
+	// Providers with no --append-system-prompt equivalent (codex, gemini,
+	// opencode, plain shells) get the same coordination hint delivered as
+	// their first TYPED message instead, once they clear their boot
+	// screens — see handleStatusChange/deliverBootHint. --role text (any
+	// provider, including claude) rides along the same one-time delivery.
+	var boot strings.Builder
+	if provider != ProviderClaudeCode {
+		boot.WriteString(coordinationHint)
+	}
+	if req.Role != "" {
+		if boot.Len() > 0 {
+			boot.WriteString("\n\n")
+		}
+		boot.WriteString(req.Role)
+	}
+	if boot.Len() > 0 {
+		e.bootMu.Lock()
+		e.bootHints[terminalID] = boot.String()
+		e.bootMu.Unlock()
+	}
+
 	m := newOutputMonitor(terminalID, provider,
 		func(s Status, text string) { e.handleStatusChange(ps, s, text) },
 		func() { e.handleDead(terminalID) },
+		func(on bool) { e.setAttention(ps, on) },
 	)
 	e.monitorsMu.Lock()
 	e.monitors[terminalID] = m
@@ -178,6 +216,38 @@ func (e *Engine) Spawn(req SpawnRequest) (SpawnResult, error) {
 	e.writePeersFile()
 
 	return SpawnResult{TerminalID: terminalID, Name: ps.AgentName}, nil
+}
+
+// coordinationHint is what every agent is told about how to talk to its
+// peers — via Claude Code's system prompt when supported, or as a first
+// typed message for everyone else (see Spawn).
+const coordinationHint = "Você pode coordenar com outros agentes via a CLI `agentmesh` (já no PATH, e as variáveis AGENTMESH_TERMINAL_ID/AGENTMESH_URL já estão no seu ambiente). Rode `agentmesh peers` pra listar quem mais está rodando, `agentmesh send <peer> \"mensagem\"` pra mandar mensagem sem esperar resposta, `agentmesh handoff <peer> \"tarefa\"` pra delegar e esperar o resultado, `agentmesh exec <peer> \"comando\"` pra rodar comando num peer shell, `agentmesh broadcast \"mensagem\"` pra avisar todo mundo de uma vez. Use `agentmesh whoami` pra saber quem você é."
+
+// setAttention updates NeedsAttention and logs the transition (only when it
+// actually flips, so a dialog that stays up doesn't spam the log every
+// poll tick).
+func (e *Engine) setAttention(ps *AgentState, on bool) {
+	ps.mu.Lock()
+	changed := ps.NeedsAttention != on
+	ps.NeedsAttention = on
+	name := ps.AgentName
+	ps.mu.Unlock()
+	if changed && on {
+		log.Printf("[mesh] %q precisa de atenção (diálogo na tela) — `agentmesh attach %s`", name, name)
+	}
+}
+
+// deliverBootHint sends text as the agent's very first message, once
+// (guarded by AgentState.BootHintSent), through the same suppress-guarded
+// path as every other delivery.
+func (e *Engine) deliverBootHint(ps *AgentState, text string) {
+	id := ps.TerminalID
+	e.suppress(id, true)
+	ps.mu.Lock()
+	ps.notifyInputSent()
+	ps.mu.Unlock()
+	_ = e.deliver(id, text)
+	time.AfterFunc(300*time.Millisecond, func() { e.suppress(id, false) })
 }
 
 func (e *Engine) handleStatusChange(ps *AgentState, s Status, text string) {
@@ -193,7 +263,31 @@ func (e *Engine) handleStatusChange(ps *AgentState, s Status, text string) {
 	if ready {
 		e.primitives.NotifyReady(id, text)
 		drainInbox(ps, e.deliver, e.suppress, nil)
+		e.maybeSendBootHint(ps)
 	}
+}
+
+// maybeSendBootHint fires, at most once per agent, the pending
+// coordination-hint/--role message queued in Spawn — on the first time the
+// agent is ever seen ready (i.e. it has cleared its boot screens).
+func (e *Engine) maybeSendBootHint(ps *AgentState) {
+	ps.mu.Lock()
+	if ps.BootHintSent {
+		ps.mu.Unlock()
+		return
+	}
+	ps.BootHintSent = true
+	id := ps.TerminalID
+	ps.mu.Unlock()
+
+	e.bootMu.Lock()
+	hint, ok := e.bootHints[id]
+	delete(e.bootHints, id)
+	e.bootMu.Unlock()
+	if !ok || hint == "" {
+		return
+	}
+	go e.deliverBootHint(ps, hint)
 }
 
 // handleDead runs when an OutputMonitor finds its tmux session gone —
@@ -244,6 +338,9 @@ func (e *Engine) Kill(nameOrID string) error {
 	e.monitorsMu.Unlock()
 
 	e.registry.Unregister(id)
+	e.bootMu.Lock()
+	delete(e.bootHints, id)
+	e.bootMu.Unlock()
 	e.writePeersFile()
 	return tmuxdrv.KillSession(id)
 }
