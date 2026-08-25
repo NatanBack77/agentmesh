@@ -61,6 +61,7 @@ type transcriptLine struct {
 	Type      string `json:"type"`
 	Timestamp string `json:"timestamp"`
 	Message   struct {
+		ID    string `json:"id"`
 		Model string `json:"model"`
 		Usage struct {
 			InputTokens              int64 `json:"input_tokens"`
@@ -91,6 +92,13 @@ func Scan(days int) (Report, error) {
 
 	byDay := map[string]*Totals{}
 	byModel := map[string]*Totals{}
+	// Claude Code writes one JSONL "assistant" line per content block, not
+	// per API turn — a reply that has text + a tool_use shows up as two
+	// lines sharing the same message.id, each carrying the SAME (already
+	// cumulative) usage. Summing every line double/triple-counts cost, so
+	// only the first line seen per message.id counts. Global across files:
+	// a session's subagents/ transcript can echo the parent's messages too.
+	seen := map[string]bool{}
 
 	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -99,7 +107,7 @@ func Scan(days int) (Report, error) {
 		if d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
-		scanFile(path, cutoff, byDay, byModel)
+		scanFile(path, cutoff, byDay, byModel, seen)
 		return nil
 	})
 	if walkErr != nil && !os.IsNotExist(walkErr) {
@@ -128,7 +136,7 @@ func Scan(days int) (Report, error) {
 	return rep, nil
 }
 
-func scanFile(path string, cutoff time.Time, byDay map[string]*Totals, byModel map[string]*Totals) {
+func scanFile(path string, cutoff time.Time, byDay map[string]*Totals, byModel map[string]*Totals, seen map[string]bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return
@@ -148,6 +156,12 @@ func scanFile(path string, cutoff time.Time, byDay map[string]*Totals, byModel m
 		}
 		if t.Type != "assistant" || t.Message.Usage.InputTokens == 0 && t.Message.Usage.OutputTokens == 0 {
 			continue
+		}
+		if t.Message.ID != "" {
+			if seen[t.Message.ID] {
+				continue
+			}
+			seen[t.Message.ID] = true
 		}
 		ts, err := time.Parse(time.RFC3339, t.Timestamp)
 		if err != nil {
