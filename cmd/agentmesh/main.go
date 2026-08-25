@@ -23,11 +23,14 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/NatanBack77/agentmesh/internal/mesh"
 	"github.com/NatanBack77/agentmesh/internal/tmuxdrv"
@@ -580,40 +583,277 @@ func cmdUsage(args []string) error {
 			days = d
 		}
 	}
-	rep, err := usagepkg.Scan(days)
-	if err != nil {
-		if oneline {
+	var rep usagepkg.Report
+	if oneline {
+		// The full scan takes several seconds (it walks every transcript
+		// under ~/.claude/projects) — fine for an on-demand report, way
+		// too slow to re-run on every tmux status-interval tick (20s) or
+		// the bar would visibly stall/flicker. Cache the result for a
+		// minute; `agentmesh usage` (no --oneline) always scans fresh.
+		r, err := usageCached(days)
+		if err != nil {
 			return nil // status bar: fail silently, never show a stack trace in the footer
 		}
-		return err
+		rep = r
+	} else {
+		r, err := usagepkg.Scan(days)
+		if err != nil {
+			return err
+		}
+		rep = r
 	}
 
 	if oneline {
-		// Compact single line for tmux's status-right (see
+		// Colored progress bars for tmux's status-right (see
 		// tmuxdrv.SetStatusBar) — every agentmesh-spawned claude session
-		// shows this in its own footer, refreshed by tmux every 20s.
-		fmt.Printf("💰 hoje $%.2f (%s) · %dd $%.2f", rep.Today.CostUSD, fmtTokens(rep.Today), days, rep.Week.CostUSD)
+		// shows this in its own footer, refreshed by tmux every 20s. tmux
+		// re-parses #[...] style tags found INSIDE a #(command) result, so
+		// this renders as real color in the status line, not literal text.
+		dailyBudget := envFloat("AGENTMESH_DAILY_BUDGET", 50)
+		weeklyBudget := envFloat("AGENTMESH_WEEKLY_BUDGET", 300)
+		fmt.Printf("💰 hoje %s $%.2f  ·  7d %s $%.2f",
+			tmuxBar(rep.Today.CostUSD/dailyBudget*100, 10),
+			rep.Today.CostUSD,
+			tmuxBar(rep.Week.CostUSD/weeklyBudget*100, 10),
+			rep.Week.CostUSD,
+		)
 		return nil
 	}
 
-	fmt.Println("Uso do Claude Code neste computador (lido de ~/.claude/projects) — custo é estimativa direcional, não é fatura.")
+	dailyBudget := envFloat("AGENTMESH_DAILY_BUDGET", 50)
+	weeklyBudget := envFloat("AGENTMESH_WEEKLY_BUDGET", 300)
+	printUsageReport(rep, days, dailyBudget, weeklyBudget)
+	return nil
+}
+
+// usage report is styled like a thermal-printer receipt — one amber "ink"
+// accent for money and section rules, grayscale for everything else, red
+// reserved for an actual budget breach. No rounded card, no red/yellow/
+// green traffic-light bars: a receipt fits the subject (a $ readout) and
+// doesn't look like every other lipgloss demo box.
+const ledgerWidth = 62
+
+var (
+	ledgerInk    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")) // amber
+	ledgerDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	ledgerFaint  = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	ledgerBright = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252"))
+	ledgerAlert  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
+)
+
+// printUsageReport renders the full `agentmesh usage` report as a receipt:
+// a torn-edge header/footer, today/week stamped as big totals with a
+// sparkline of the underlying daily trend, then a dot-leader ledger for
+// the per-day and per-model breakdowns.
+func printUsageReport(rep usagepkg.Report, days int, dailyBudget, weeklyBudget float64) {
+	dailyCosts := make([]float64, len(rep.Days))
+	for i, d := range rep.Days {
+		dailyCosts[i] = d.Totals.CostUSD
+	}
+
+	fmt.Println(ledgerPerforation())
+	fmt.Println(ledgerCenter("A G E N T M E S H", "recibo de uso · claude"))
+	fmt.Println(ledgerPerforation())
 	fmt.Println()
-	fmt.Printf("Hoje:            %s tokens · $%.2f\n", fmtTokens(rep.Today), rep.Today.CostUSD)
-	fmt.Printf("Últimos %d dias:  %s tokens · $%.2f\n", days, fmtTokens(rep.Week), rep.Week.CostUSD)
+	fmt.Println(ledgerStamp("HOJE", rep.Today.CostUSD, dailyBudget, fmtTokens(rep.Today), dailyCosts, "/dia"))
+	fmt.Println()
+	fmt.Println(ledgerStamp(fmt.Sprintf("%d DIAS", days), rep.Week.CostUSD, weeklyBudget, fmtTokens(rep.Week), dailyCosts, "/sem"))
 
 	if len(rep.Days) > 1 {
-		fmt.Println("\nPor dia:")
+		fmt.Println()
+		fmt.Println(ledgerSection("POR DIA"))
 		for _, d := range rep.Days {
-			fmt.Printf("  %s  %10s tokens   $%.2f\n", d.Date, fmtTokens(d.Totals), d.Totals.CostUSD)
+			fmt.Println(ledgerLine(d.Date, d.Totals.CostUSD, fmtTokens(d.Totals)))
 		}
 	}
 	if len(rep.ByModel) > 0 {
-		fmt.Println("\nPor modelo (período todo):")
-		for model, t := range rep.ByModel {
-			fmt.Printf("  %-28s %10s tokens   $%.2f\n", model, fmtTokens(t), t.CostUSD)
+		fmt.Println()
+		fmt.Println(ledgerSection("POR MODELO"))
+		models := make([]string, 0, len(rep.ByModel))
+		for m := range rep.ByModel {
+			models = append(models, m)
+		}
+		sort.Slice(models, func(i, j int) bool { return rep.ByModel[models[i]].CostUSD > rep.ByModel[models[j]].CostUSD })
+		for _, model := range models {
+			t := rep.ByModel[model]
+			fmt.Println(ledgerLine(model, t.CostUSD, fmtTokens(t)))
 		}
 	}
-	return nil
+
+	fmt.Println()
+	fmt.Println(ledgerPerforation())
+	fmt.Println(ledgerFaint.Render("  estimativa direcional · lido de ~/.claude/projects · não é fatura"))
+	fmt.Println(ledgerPerforation())
+}
+
+// ledgerPerforation draws the receipt's torn top/bottom edge.
+func ledgerPerforation() string {
+	return ledgerDim.Render(strings.Repeat("∴╌", ledgerWidth/2))
+}
+
+// ledgerCenter prints a bold title with a dim subtitle right after it,
+// both centered-ish inside the receipt width.
+func ledgerCenter(title, subtitle string) string {
+	line := title + "   " + subtitle
+	pad := max((ledgerWidth-len(line))/2, 0)
+	return strings.Repeat(" ", pad) + ledgerInk.Render(title) + "   " + ledgerFaint.Render(subtitle)
+}
+
+// ledgerStamp renders one big total ("HOJE" / "N DIAS"): the label, the
+// amount in ink, token count, and a sparkline of the daily trend next to
+// the % of budget consumed. Only goes red if the budget is actually blown.
+func ledgerStamp(label string, cost, budget float64, tokens string, trend []float64, per string) string {
+	pct := 0.0
+	if budget > 0 {
+		pct = cost / budget * 100
+	}
+	pctStyle := ledgerFaint
+	status := ""
+	switch {
+	case pct >= 100:
+		pctStyle, status = ledgerAlert, "  ▲ estourou"
+	case pct >= 85:
+		pctStyle, status = ledgerInk, "  ▲ quase lá"
+	}
+
+	amount := fmt.Sprintf("$%.2f", cost)
+	top := fmt.Sprintf("  %s%s%s",
+		ledgerBright.Render(label),
+		strings.Repeat(" ", max(1, ledgerWidth-len(label)-len(amount)-2)),
+		ledgerInk.Render(amount),
+	)
+	bottom := fmt.Sprintf("  %s   %s %s%s",
+		ledgerFaint.Render(tokens+" tokens"),
+		ledgerSparkline(trend),
+		pctStyle.Render(fmt.Sprintf("%.0f%% de %.0f%s", pct, budget, per)),
+		pctStyle.Render(status),
+	)
+	return top + "\n" + bottom
+}
+
+// ledgerSparkline turns a daily cost series into an 8-level block
+// sparkline (▁▂▃▄▅▆▇█), scaled to the series' own min/max so a quiet week
+// and a spendy week both show visible shape instead of a flat line.
+func ledgerSparkline(vals []float64) string {
+	if len(vals) == 0 {
+		return ledgerDim.Render("▁▁▁▁▁▁▁▁")
+	}
+	blocks := []rune("▁▂▃▄▅▆▇█")
+	lo, hi := vals[0], vals[0]
+	for _, v := range vals {
+		if v < lo {
+			lo = v
+		}
+		if v > hi {
+			hi = v
+		}
+	}
+	var b strings.Builder
+	for _, v := range vals {
+		idx := 0
+		if hi > lo {
+			idx = int((v - lo) / (hi - lo) * float64(len(blocks)-1))
+		}
+		b.WriteRune(blocks[idx])
+	}
+	return ledgerInk.Render(b.String())
+}
+
+// ledgerSection prints a small caps section header flanked by dim rules,
+// e.g. "· · · · POR DIA · · · · · · · · · · · · · · · · · · · · · · · ·".
+func ledgerSection(title string) string {
+	label := " " + title + " "
+	fill := ledgerWidth - len(label)
+	left := fill / 3
+	right := fill - left
+	return ledgerDim.Render(strings.Repeat("·", left)) +
+		ledgerBright.Render(label) +
+		ledgerDim.Render(strings.Repeat("·", right))
+}
+
+// ledgerLine renders one dot-leader row: "label ..... $amount", the
+// classic receipt/invoice alignment trick — no columns to eyeball, the
+// dots do the aligning.
+func ledgerLine(label string, cost float64, tokens string) string {
+	amount := fmt.Sprintf("$%.2f", cost)
+	suffix := "  " + amount
+	dots := max(ledgerWidth-len(label)-len(suffix)-2, 3)
+	return fmt.Sprintf("  %s %s%s  %s",
+		ledgerBright.Render(label),
+		ledgerDim.Render(strings.Repeat(".", dots)),
+		ledgerInk.Render(suffix),
+		ledgerFaint.Render(tokens+" tok"),
+	)
+}
+
+// usageCached wraps usagepkg.Scan with a 60s file cache — the status bar
+// (tmux #(), re-run on every status-interval tick) would otherwise pay the
+// full multi-second transcript walk over and over for no new information.
+func usageCached(days int) (usagepkg.Report, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return usagepkg.Report{}, err
+	}
+	cachePath := fmt.Sprintf("%s/.agentmesh/usage-cache-%dd.json", home, days)
+
+	if fi, err := os.Stat(cachePath); err == nil && time.Since(fi.ModTime()) < 60*time.Second {
+		if b, err := os.ReadFile(cachePath); err == nil {
+			var rep usagepkg.Report
+			if json.Unmarshal(b, &rep) == nil {
+				return rep, nil
+			}
+		}
+	}
+
+	rep, err := usagepkg.Scan(days)
+	if err != nil {
+		return usagepkg.Report{}, err
+	}
+	if b, err := json.Marshal(rep); err == nil {
+		_ = os.MkdirAll(home+"/.agentmesh", 0o755)
+		_ = os.WriteFile(cachePath, b, 0o644)
+	}
+	return rep, nil
+}
+
+func envFloat(name string, def float64) float64 {
+	if v := os.Getenv(name); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			return f
+		}
+	}
+	return def
+}
+
+// tmuxBar renders a colored block-progress bar using tmux's inline
+// #[fg=...] style tags — tmux re-parses these when they come back through
+// a #(command) substitution in status-right, so this prints as an actual
+// colored bar in the terminal footer, not literal escape text. pct is
+// clamped to [0,100]; color follows the same ok/warning/danger thresholds
+// (60/85%) used elsewhere for usage indicators.
+func tmuxBar(pct float64, width int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	filled := int(pct/100*float64(width) + 0.5)
+	color := "colour46" // green
+	switch {
+	case pct >= 85:
+		color = "colour196" // red
+	case pct >= 60:
+		color = "colour220" // yellow
+	}
+	var b strings.Builder
+	b.WriteString("#[fg=" + color + "]")
+	b.WriteString(strings.Repeat("█", filled))
+	b.WriteString("#[fg=colour238]")
+	b.WriteString(strings.Repeat("░", width-filled))
+	b.WriteString("#[default] ")
+	fmt.Fprintf(&b, "%.0f%%", pct)
+	return b.String()
 }
 
 func fmtTokens(t usagepkg.Totals) string {

@@ -99,7 +99,7 @@ func SetStatusBar(sessionName string) error {
 	if _, err := run("set-option", "-t", sessionName, "status-interval", "20"); err != nil {
 		return err
 	}
-	if _, err := run("set-option", "-t", sessionName, "status-right-length", "60"); err != nil {
+	if _, err := run("set-option", "-t", sessionName, "status-right-length", "90"); err != nil {
 		return err
 	}
 	_, err := run("set-option", "-t", sessionName, "status-right", "#(agentmesh usage --oneline 2>/dev/null)")

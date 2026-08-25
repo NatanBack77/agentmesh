@@ -211,23 +211,61 @@ providers ainda não têm esse padrão mapeado.)
 - `AGENTMESH_TERMINAL_ID` — identidade de quem está chamando a CLI; setada
   automaticamente nos agentes que o próprio `agentmesh spawn` cria.
 
-## Custo (tokens/$) — diário e semanal
+## Quanto eu tô gastando?
+
+Duas formas de ver, pro mesmo dado — uma pra olhar quando quiser, outra
+que fica sempre visível sem você pedir nada.
+
+**`agentmesh usage`** dá o extrato completo, formatado como um recibo:
+
+```
+∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌
+         A G E N T M E S H   recibo de uso · claude
+∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌
+
+  HOJE                                                   $2.03
+  3.7M tokens   █▇▁ 4% de 50/dia
+
+  7 DIAS                                               $383.83
+  1099.6M tokens   █▇▁ 128% de 300/sem  ▲ estourou
+
+················· POR DIA ····································
+  2026-08-23 .........................................  $200.42  595.8M tok
+  2026-08-24 .........................................  $181.39  500.0M tok
+  2026-08-25 ...........................................  $2.03  3.7M tok
+```
 
 ```bash
 agentmesh usage             # hoje + últimos 7 dias, por dia e por modelo
 agentmesh usage --days 30   # janela maior
 ```
 
-Lê direto os transcripts que o **Claude Code já grava sozinho** em
-`~/.claude/projects/**/*.jsonl` — não precisa do motor rodando, e cobre
-TODO uso de Claude Code na máquina, não só os agentes que o agentmesh
-spawnou. Custo é estimativa (tabela de preço fixa no código, não é
-integração de billing) — direcional, não é fatura.
+Sem gráfico traffic-light de verde/amarelo/vermelho pra tudo — só fica
+vermelho quando o orçamento realmente estourou. O resto é o número, o
+sparkline da tendência dos últimos dias e o extrato por dia/modelo.
 
-**Todo agente `claude` spawnado já nasce com isso no rodapé do próprio
-terminal** (a barra de status do tmux, `agentmesh usage --oneline`,
-atualizada sozinha a cada 20s pelo tmux) — não precisa abrir nada separado,
-é só `agentmesh attach nome` e olhar o rodapé.
+**No rodapé de todo agente `claude` que você spawna** já vem uma versão
+compacta, atualizada sozinha a cada 20s pelo tmux — não precisa abrir
+nada separado, é só `agentmesh attach nome` e olhar embaixo:
+`💰 hoje ██████░░░░ 62% $31.20 · 7d ███░░░░░░░ 34% $102.40`
+(verde <60%, amarelo 60–85%, vermelho ≥85% do orçamento).
+
+Os dois lêem os mesmos dados: os transcripts que o **Claude Code já
+grava sozinho** em `~/.claude/projects/**/*.jsonl`. Não precisa do motor
+rodando, e cobre TODO uso de Claude Code na máquina, não só os agentes
+que o agentmesh spawnou. Custo é estimativa (tabela de preço fixa no
+código, não é integração de billing) — direcional, não é fatura.
+
+Orçamento padrão: $50/dia e $300/semana. Pra ajustar ao seu plano real:
+
+```bash
+export AGENTMESH_DAILY_BUDGET=100     # $ que você considera "cheio" no dia
+export AGENTMESH_WEEKLY_BUDGET=500
+```
+
+(A primeira leitura demora alguns segundos — varre todos os transcripts.
+Fica em cache por 60s, então nem o extrato nem a barra do rodapé travam
+esperando.)
 
 **codex/gemini/opencode ainda não têm isso** — cada um grava uso num
 formato de log diferente e nenhum estava instalado nesta máquina pra eu
