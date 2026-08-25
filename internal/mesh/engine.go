@@ -249,12 +249,20 @@ func (e *Engine) Spawn(req SpawnRequest) (SpawnResult, error) {
 	}
 
 	// Providers with no --append-system-prompt equivalent (codex, gemini,
-	// opencode, plain shells) get the same coordination hint delivered as
-	// their first TYPED message instead, once they clear their boot
-	// screens — see handleStatusChange/deliverBootHint. --role text (any
-	// provider, including claude) rides along the same one-time delivery.
+	// opencode) get the same coordination hint delivered as their first
+	// TYPED message instead, once they clear their boot screens — see
+	// handleStatusChange/deliverBootHint. --role text (any provider,
+	// including claude and shells) rides along the same one-time delivery.
+	//
+	// Shell/unknown providers are deliberately EXCLUDED from the hint
+	// itself: a plain bash/zsh isn't an agent that reads instructions, it
+	// EXECUTES whatever lands in its input as a command — typing the hint
+	// there ran it as a shell command and threw a syntax error on the
+	// parentheses/backticks in it (reported live). --role still applies:
+	// if the caller explicitly asked for one, that's on them.
 	var boot strings.Builder
-	if provider != ProviderClaudeCode {
+	switch provider {
+	case ProviderCodex, ProviderOpenCode, ProviderGeminiCLI:
 		boot.WriteString(coordinationHint)
 	}
 	if req.Role != "" {
