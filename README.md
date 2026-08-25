@@ -166,6 +166,37 @@ agentmesh spawn revisor claude --role "Você revisa código em busca de bugs de 
 O texto é entregue como a primeira mensagem do agente, assim que ele sai
 das telas de boot — funciona pra qualquer provider (não só claude).
 
+## Isolamento por git worktree
+
+Duas (ou mais) sessões trabalhando no MESMO repositório ao mesmo tempo,
+sem pisar no trabalho não commitado uma da outra:
+
+```bash
+agentmesh spawn coder claude --cwd ~/meu-repo --worktree
+agentmesh spawn fixer claude --cwd ~/meu-repo --branch bugfix/login
+```
+
+Cada agente ganha seu próprio `git worktree` (checkout físico separado,
+mesmo `.git` compartilhado — barato, não é um clone) numa branch própria.
+Sem `--branch`, o nome vira `agentmesh/<nome-do-agente>`; com `--branch`,
+`--worktree` fica implícito. Reusar o mesmo `--branch` num spawn seguinte
+faz o checkout da branch existente (continua de onde parou) em vez de dar
+erro. Os worktrees ficam em `<repo>/.agentmesh/worktrees/` — vale a pena
+adicionar `.agentmesh/` ao `.gitignore` do repo.
+
+`agentmesh ls` mostra a branch de cada agente isolado numa coluna própria.
+
+**Ao encerrar, por padrão NADA é apagado** — `agentmesh kill` só mata a
+sessão tmux; o worktree e a branch continuam lá pra você revisar/mergear
+na mão:
+
+```bash
+agentmesh kill coder                                   # mantém tudo
+agentmesh kill coder --remove-worktree                 # remove o worktree (recusa se tiver mudança não commitada)
+agentmesh kill coder --remove-worktree --force          # remove mesmo com mudança não commitada
+agentmesh kill coder --remove-worktree --delete-branch --force  # remove worktree E apaga a branch
+```
+
 ## Diagnóstico: "⚠ precisa de atenção"
 
 `agentmesh ls` marca com `⚠` qualquer agente cuja tela bata com um diálogo
