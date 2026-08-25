@@ -12,9 +12,33 @@ import (
 	"sync"
 	"time"
 
+	"github.com/NatanBack77/agentmesh/internal/gitwt"
 	"github.com/NatanBack77/agentmesh/internal/tmuxdrv"
 	"github.com/google/uuid"
 )
+
+// safeBranchName derives a filesystem/branch-safe slug from an agent name,
+// falling back to (and always suffixing with) a short piece of its
+// terminalID — keeps worktree paths/branches unique even if two spawns
+// reuse the same name before the first one is cleaned up.
+func safeBranchName(name, terminalID string) string {
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		}
+	}
+	slug := b.String()
+	if slug == "" {
+		slug = "agent"
+	}
+	suffix := terminalID
+	if len(suffix) > 8 {
+		suffix = suffix[:8]
+	}
+	return slug + "-" + suffix
+}
 
 // Config tunes the engine's limits.
 type Config struct {
@@ -124,6 +148,17 @@ type SpawnRequest struct {
 	// leaves its boot screens — a persona/instruction injected at spawn
 	// time, mirroring Openfield's role system. Works for any provider.
 	Role string
+	// Worktree, when true, isolates this agent: instead of running in CWD
+	// directly, it gets its own `git worktree` checkout of CWD's repo, on
+	// its own branch — so two agents can work on the same repository at
+	// the same time without touching each other's uncommitted changes.
+	// CWD must resolve to a git repository when this is set.
+	Worktree bool
+	// Branch names the worktree's branch. Empty defaults to
+	// "agentmesh/<name>". Reused as-is (checked out, not recreated) if it
+	// already exists — so re-spawning an agent under the same branch name
+	// picks up where a previous run left off instead of erroring.
+	Branch string
 }
 
 // SpawnResult is returned to the caller after a successful spawn.
@@ -152,6 +187,24 @@ func (e *Engine) Spawn(req SpawnRequest) (SpawnResult, error) {
 	terminalID := uuid.New().String()
 	provider := ProviderFromCommand(filepath.Base(req.Command))
 
+	var repoRoot, worktreePath, branch string
+	if req.Worktree {
+		root, err := gitwt.RepoRoot(cwd)
+		if err != nil {
+			return SpawnResult{}, err
+		}
+		repoRoot = root
+		branch = req.Branch
+		if branch == "" {
+			branch = "agentmesh/" + safeBranchName(req.Name, terminalID)
+		}
+		worktreePath = filepath.Join(repoRoot, ".agentmesh", "worktrees", safeBranchName(req.Name, terminalID))
+		if err := gitwt.AddWorktree(repoRoot, worktreePath, branch); err != nil {
+			return SpawnResult{}, err
+		}
+		cwd = worktreePath
+	}
+
 	env := []string{
 		"AGENTMESH_TERMINAL_ID=" + terminalID,
 		"AGENTMESH_NAME=" + req.Name,
@@ -167,6 +220,9 @@ func (e *Engine) Spawn(req SpawnRequest) (SpawnResult, error) {
 	}
 
 	if err := tmuxdrv.NewSession(terminalID, cwd, req.Command, args, env); err != nil {
+		if worktreePath != "" {
+			_ = gitwt.RemoveWorktree(repoRoot, worktreePath, true)
+		}
 		return SpawnResult{}, err
 	}
 	if provider == ProviderClaudeCode {
@@ -179,7 +235,17 @@ func (e *Engine) Spawn(req SpawnRequest) (SpawnResult, error) {
 	ps, err := e.registry.Register(terminalID, req.Name, cwd, req.Command, provider)
 	if err != nil {
 		_ = tmuxdrv.KillSession(terminalID)
+		if worktreePath != "" {
+			_ = gitwt.RemoveWorktree(repoRoot, worktreePath, true)
+		}
 		return SpawnResult{}, err
+	}
+	if worktreePath != "" {
+		ps.mu.Lock()
+		ps.WorktreeRepo = repoRoot
+		ps.WorktreePath = worktreePath
+		ps.WorktreeBranch = branch
+		ps.mu.Unlock()
 	}
 
 	// Providers with no --append-system-prompt equivalent (codex, gemini,
@@ -321,13 +387,24 @@ func (e *Engine) handleDead(terminalID string) {
 }
 
 // Kill terminates an agent's tmux session and unregisters it.
-func (e *Engine) Kill(nameOrID string) error {
+// KillOptions controls what happens to a worktree-isolated agent's git
+// state when it's killed. Zero value = leave the worktree and branch
+// exactly as they are, so the work is never lost by an accidental kill —
+// removal is always something the caller opts into explicitly.
+type KillOptions struct {
+	RemoveWorktree bool
+	DeleteBranch   bool // only meaningful together with RemoveWorktree
+	Force          bool // discard uncommitted changes in the worktree
+}
+
+func (e *Engine) Kill(nameOrID string, opts KillOptions) error {
 	ps, err := e.primitives.resolveTarget(nameOrID)
 	if err != nil {
 		return err
 	}
 	ps.mu.Lock()
 	id := ps.TerminalID
+	repoRoot, worktreePath, branch := ps.WorktreeRepo, ps.WorktreePath, ps.WorktreeBranch
 	ps.mu.Unlock()
 
 	e.monitorsMu.Lock()
@@ -342,7 +419,23 @@ func (e *Engine) Kill(nameOrID string) error {
 	delete(e.bootHints, id)
 	e.bootMu.Unlock()
 	e.writePeersFile()
-	return tmuxdrv.KillSession(id)
+
+	// Kill the process BEFORE touching the worktree — an agent still
+	// holding open file handles in it could make `git worktree remove`
+	// fail or misbehave on some filesystems.
+	killErr := tmuxdrv.KillSession(id)
+
+	if worktreePath != "" && opts.RemoveWorktree {
+		if err := gitwt.RemoveWorktree(repoRoot, worktreePath, opts.Force); err != nil {
+			return fmt.Errorf("agente encerrado, mas não consegui remover o worktree: %w", err)
+		}
+		if opts.DeleteBranch {
+			if err := gitwt.DeleteBranch(repoRoot, branch); err != nil {
+				return fmt.Errorf("agente encerrado, worktree removido, mas não consegui apagar a branch %q: %w", branch, err)
+			}
+		}
+	}
+	return killErr
 }
 
 // Registry exposes the read-only agent list.

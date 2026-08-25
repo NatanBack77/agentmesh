@@ -103,13 +103,15 @@ func usage() {
 
   agentmesh serve [--port N]                    inicia o motor (fica em foreground)
   agentmesh spawn NOME COMANDO [ARGS...] [--cwd DIR] [--role "instrução"]
+                                                  [--worktree] [--branch NOME]  (isolamento git, ver abaixo)
   agentmesh ls | peers                          lista agentes rodando (⚠ = esperando confirmação numa tela)
   agentmesh send NOME "mensagem"                 manda mensagem (não bloqueia)
   agentmesh broadcast "mensagem"                 manda pra TODOS os outros agentes
   agentmesh handoff NOME "tarefa" [--timeout S]  delega e espera o resultado
   agentmesh exec SHELL "comando"                 roda comando num agente shell e lê a saída
   agentmesh whoami                               identidade do agente atual (usa $AGENTMESH_TERMINAL_ID)
-  agentmesh kill NOME                            mata um agente
+  agentmesh kill NOME [--remove-worktree] [--delete-branch] [--force]
+                                                  mata um agente (por padrão deixa worktree/branch intactos)
   agentmesh attach NOME                          entra no terminal de verdade (tmux attach; Ctrl+B D desanexa)
   agentmesh watch NOME                           acompanha, somente leitura (tmux attach -r)
   agentmesh demo [--agent claude|codex]          teste automático: sobe o motor,
@@ -153,20 +155,28 @@ func apiRequest(method, path string, body any, out any) error {
 		return fmt.Errorf("não consegui falar com o motor em %s (rodando? `agentmesh serve`): %w", baseURL(), err)
 	}
 	defer resp.Body.Close()
-	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return err
-		}
-	}
+
+	// Read the body ONCE: it's an http.Response.Body, a single-use stream —
+	// decoding it into `out` first and THEN trying to decode an error out
+	// of it again (the old order) always found an already-drained reader
+	// on failure, so every spawn/kill/etc error surfaced as a bare "HTTP
+	// 400" instead of the actual reason from the server.
+	raw, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode >= 400 {
 		var e struct {
 			Error string `json:"error"`
 		}
-		_ = json.NewDecoder(resp.Body).Decode(&e)
+		_ = json.Unmarshal(raw, &e)
 		if e.Error != "" {
 			return fmt.Errorf("%s", e.Error)
 		}
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	if out != nil && len(raw) > 0 {
+		if err := json.Unmarshal(raw, out); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -208,8 +218,22 @@ func cmdServe(args []string) error {
 func cmdSpawn(args []string) error {
 	cwd, args := flagValue(args, "--cwd")
 	role, args := flagValue(args, "--role")
+	branch, args := flagValue(args, "--branch")
+	worktree := false
+	filtered := args[:0]
+	for _, a := range args {
+		if a == "--worktree" {
+			worktree = true
+			continue
+		}
+		filtered = append(filtered, a)
+	}
+	args = filtered
 	if len(args) < 2 {
-		return fmt.Errorf("uso: agentmesh spawn NOME COMANDO [ARGS...] [--cwd DIR] [--role \"instrução\"]")
+		return fmt.Errorf("uso: agentmesh spawn NOME COMANDO [ARGS...] [--cwd DIR] [--role \"instrução\"] [--worktree] [--branch NOME]")
+	}
+	if branch != "" {
+		worktree = true // an explicit --branch implies isolation
 	}
 	name, command, rest := args[0], args[1], args[2:]
 
@@ -230,11 +254,18 @@ func cmdSpawn(args []string) error {
 	var res mesh.SpawnResult
 	err := apiRequest("POST", "/spawn", map[string]any{
 		"name": name, "command": command, "args": rest, "cwd": cwd, "role": role,
+		"worktree": worktree, "branch": branch,
 	}, &res)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("spawned %q (%s)\n", res.Name, res.TerminalID)
+	if worktree {
+		var v agentView
+		if err := apiRequest("GET", "/agents/"+res.TerminalID, nil, &v); err == nil && v.Branch != "" {
+			fmt.Printf("  isolado em worktree próprio, branch %q\n", v.Branch)
+		}
+	}
 	return nil
 }
 
@@ -248,6 +279,7 @@ type agentView struct {
 	ParentID   string `json:"parent_id,omitempty"`
 	ChainDepth int    `json:"chain_depth"`
 	Attention  bool   `json:"attention"`
+	Branch     string `json:"branch,omitempty"`
 }
 
 func cmdList(args []string) error {
@@ -259,13 +291,17 @@ func cmdList(args []string) error {
 		fmt.Println("(nenhum agente rodando)")
 		return nil
 	}
-	fmt.Printf("%-3s %-14s %-10s %-11s %-6s %s\n", "", "NOME", "PROVIDER", "STATUS", "PROF.", "CWD")
+	fmt.Printf("%-3s %-14s %-10s %-11s %-6s %-22s %s\n", "", "NOME", "PROVIDER", "STATUS", "PROF.", "BRANCH", "CWD")
 	for _, v := range views {
 		mark := ""
 		if v.Attention {
 			mark = "⚠"
 		}
-		fmt.Printf("%-3s %-14s %-10s %-11s %-6d %s\n", mark, v.Name, v.Provider, v.Status, v.ChainDepth, v.CWD)
+		branch := v.Branch
+		if branch == "" {
+			branch = "-"
+		}
+		fmt.Printf("%-3s %-14s %-10s %-11s %-6d %-22s %s\n", mark, v.Name, v.Provider, v.Status, v.ChainDepth, branch, v.CWD)
 	}
 	for _, v := range views {
 		if v.Attention {
@@ -368,10 +404,41 @@ func cmdWhoami(args []string) error {
 }
 
 func cmdKill(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("uso: agentmesh kill NOME")
+	removeWorktree := false
+	deleteBranch := false
+	force := false
+	filtered := args[:0]
+	for _, a := range args {
+		switch a {
+		case "--remove-worktree":
+			removeWorktree = true
+		case "--delete-branch":
+			deleteBranch = true
+		case "--force":
+			force = true
+		default:
+			filtered = append(filtered, a)
+		}
 	}
-	return apiRequest("DELETE", "/agents/"+args[0], nil, nil)
+	args = filtered
+	if len(args) < 1 {
+		return fmt.Errorf("uso: agentmesh kill NOME [--remove-worktree] [--delete-branch] [--force]")
+	}
+	q := url.Values{}
+	if removeWorktree {
+		q.Set("remove_worktree", "1")
+	}
+	if deleteBranch {
+		q.Set("delete_branch", "1")
+	}
+	if force {
+		q.Set("force", "1")
+	}
+	path := "/agents/" + args[0]
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+	return apiRequest("DELETE", path, nil, nil)
 }
 
 // cmdAttachOrWatch resolves the agent's real tmux session name and execs

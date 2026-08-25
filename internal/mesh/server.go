@@ -40,6 +40,7 @@ type agentView struct {
 	ParentID   string `json:"parent_id,omitempty"`
 	ChainDepth int    `json:"chain_depth"`
 	Attention  bool   `json:"attention"`
+	Branch     string `json:"branch,omitempty"` // set only when isolated via git worktree
 }
 
 func viewOf(ps *AgentState) agentView {
@@ -55,22 +56,28 @@ func viewOf(ps *AgentState) agentView {
 		ParentID:   ps.ParentTerminalID,
 		ChainDepth: ps.ChainDepth,
 		Attention:  ps.NeedsAttention,
+		Branch:     ps.WorktreeBranch,
 	}
 }
 
 func (e *Engine) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name    string   `json:"name"`
-		Command string   `json:"command"`
-		Args    []string `json:"args"`
-		CWD     string   `json:"cwd"`
-		Role    string   `json:"role"`
+		Name     string   `json:"name"`
+		Command  string   `json:"command"`
+		Args     []string `json:"args"`
+		CWD      string   `json:"cwd"`
+		Role     string   `json:"role"`
+		Worktree bool     `json:"worktree"`
+		Branch   string   `json:"branch"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	res, err := e.Spawn(SpawnRequest{Name: req.Name, Command: req.Command, Args: req.Args, CWD: req.CWD, Role: req.Role})
+	res, err := e.Spawn(SpawnRequest{
+		Name: req.Name, Command: req.Command, Args: req.Args, CWD: req.CWD, Role: req.Role,
+		Worktree: req.Worktree, Branch: req.Branch,
+	})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -98,7 +105,13 @@ func (e *Engine) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (e *Engine) handleKill(w http.ResponseWriter, r *http.Request) {
-	if err := e.Kill(r.PathValue("id")); err != nil {
+	q := r.URL.Query()
+	opts := KillOptions{
+		RemoveWorktree: q.Get("remove_worktree") == "1",
+		DeleteBranch:   q.Get("delete_branch") == "1",
+		Force:          q.Get("force") == "1",
+	}
+	if err := e.Kill(r.PathValue("id"), opts); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}

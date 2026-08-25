@@ -111,6 +111,13 @@ type AgentState struct {
 	CWD        string
 	Command    string
 
+	// Worktree isolation (empty fields = not using one). RepoRoot is the
+	// shared repo; WorktreePath (== CWD when set) and WorktreeBranch are
+	// this agent's own checkout — see internal/gitwt.
+	WorktreeRepo   string
+	WorktreePath   string
+	WorktreeBranch string
+
 	Status           Status
 	CreatedAt        time.Time
 	LastStatusChange time.Time
