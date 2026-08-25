@@ -634,12 +634,34 @@ func cmdUsage(args []string) error {
 const ledgerWidth = 62
 
 var (
-	ledgerInk    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")) // amber
+	ledgerInk    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F2A93B")) // amber, truecolor
 	ledgerDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	ledgerFaint  = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	ledgerBright = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252"))
-	ledgerAlert  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
+	ledgerAlert  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF3B30")) // hot red, truecolor
 )
+
+// ledgerHeat is a 24-bit amber→red gradient (not the 256-color palette
+// codes above) — every "how much did this cost, relative to something"
+// number gets its own point on the gradient instead of one flat accent
+// color, so the receipt reads temperature at a glance: quiet days stay
+// warm amber, the expensive ones glow hotter without ever going full
+// traffic-light red/yellow/green.
+var ledgerHeatFrom = [3]int{0xF2, 0xA9, 0x3B} // amber
+var ledgerHeatTo = [3]int{0xFF, 0x3B, 0x30}   // hot red
+
+func ledgerHeat(t float64) lipgloss.Style {
+	if t < 0 {
+		t = 0
+	}
+	if t > 1 {
+		t = 1
+	}
+	r := int(float64(ledgerHeatFrom[0]) + t*float64(ledgerHeatTo[0]-ledgerHeatFrom[0]))
+	g := int(float64(ledgerHeatFrom[1]) + t*float64(ledgerHeatTo[1]-ledgerHeatFrom[1]))
+	b := int(float64(ledgerHeatFrom[2]) + t*float64(ledgerHeatTo[2]-ledgerHeatFrom[2]))
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, b)))
+}
 
 // printUsageReport renders the full `agentmesh usage` report as a receipt:
 // a torn-edge header/footer, today/week stamped as big totals with a
@@ -660,23 +682,29 @@ func printUsageReport(rep usagepkg.Report, days int, dailyBudget, weeklyBudget f
 	fmt.Println(ledgerStamp(fmt.Sprintf("%d DIAS", days), rep.Week.CostUSD, weeklyBudget, fmtTokens(rep.Week), dailyCosts, "/sem"))
 
 	if len(rep.Days) > 1 {
+		maxDay := 0.0
+		for _, d := range rep.Days {
+			maxDay = max(maxDay, d.Totals.CostUSD)
+		}
 		fmt.Println()
 		fmt.Println(ledgerSection("POR DIA"))
 		for _, d := range rep.Days {
-			fmt.Println(ledgerLine(d.Date, d.Totals.CostUSD, fmtTokens(d.Totals)))
+			fmt.Println(ledgerLine(d.Date, d.Totals.CostUSD, maxDay, fmtTokens(d.Totals)))
 		}
 	}
 	if len(rep.ByModel) > 0 {
 		fmt.Println()
 		fmt.Println(ledgerSection("POR MODELO"))
 		models := make([]string, 0, len(rep.ByModel))
-		for m := range rep.ByModel {
+		maxModel := 0.0
+		for m, t := range rep.ByModel {
 			models = append(models, m)
+			maxModel = max(maxModel, t.CostUSD)
 		}
 		sort.Slice(models, func(i, j int) bool { return rep.ByModel[models[i]].CostUSD > rep.ByModel[models[j]].CostUSD })
 		for _, model := range models {
 			t := rep.ByModel[model]
-			fmt.Println(ledgerLine(model, t.CostUSD, fmtTokens(t)))
+			fmt.Println(ledgerLine(model, t.CostUSD, maxModel, fmtTokens(t)))
 		}
 	}
 
@@ -720,7 +748,7 @@ func ledgerStamp(label string, cost, budget float64, tokens string, trend []floa
 	top := fmt.Sprintf("  %s%s%s",
 		ledgerBright.Render(label),
 		strings.Repeat(" ", max(1, ledgerWidth-len(label)-len(amount)-2)),
-		ledgerInk.Render(amount),
+		ledgerHeat(pct/100).Render(amount),
 	)
 	bottom := fmt.Sprintf("  %s   %s %s%s",
 		ledgerFaint.Render(tokens+" tokens"),
@@ -733,7 +761,9 @@ func ledgerStamp(label string, cost, budget float64, tokens string, trend []floa
 
 // ledgerSparkline turns a daily cost series into an 8-level block
 // sparkline (▁▂▃▄▅▆▇█), scaled to the series' own min/max so a quiet week
-// and a spendy week both show visible shape instead of a flat line.
+// and a spendy week both show visible shape instead of a flat line. Each
+// bar also gets its own point on the truecolor amber→red gradient (same
+// min/max), so the shape reads in height AND color, not just height.
 func ledgerSparkline(vals []float64) string {
 	if len(vals) == 0 {
 		return ledgerDim.Render("▁▁▁▁▁▁▁▁")
@@ -750,13 +780,14 @@ func ledgerSparkline(vals []float64) string {
 	}
 	var b strings.Builder
 	for _, v := range vals {
-		idx := 0
+		t := 0.5
 		if hi > lo {
-			idx = int((v - lo) / (hi - lo) * float64(len(blocks)-1))
+			t = (v - lo) / (hi - lo)
 		}
-		b.WriteRune(blocks[idx])
+		idx := int(t * float64(len(blocks)-1))
+		b.WriteString(ledgerHeat(t).Render(string(blocks[idx])))
 	}
-	return ledgerInk.Render(b.String())
+	return b.String()
 }
 
 // ledgerSection prints a small caps section header flanked by dim rules,
@@ -773,15 +804,22 @@ func ledgerSection(title string) string {
 
 // ledgerLine renders one dot-leader row: "label ..... $amount", the
 // classic receipt/invoice alignment trick — no columns to eyeball, the
-// dots do the aligning.
-func ledgerLine(label string, cost float64, tokens string) string {
+// dots do the aligning. maxCost is the largest amount in this row's list
+// (the day or the model that cost the most); the amount is colored on the
+// amber→red gradient relative to it, so the priciest row in each section
+// glows hottest instead of every row sharing one flat accent.
+func ledgerLine(label string, cost, maxCost float64, tokens string) string {
 	amount := fmt.Sprintf("$%.2f", cost)
 	suffix := "  " + amount
 	dots := max(ledgerWidth-len(label)-len(suffix)-2, 3)
+	t := 0.0
+	if maxCost > 0 {
+		t = cost / maxCost
+	}
 	return fmt.Sprintf("  %s %s%s  %s",
 		ledgerBright.Render(label),
 		ledgerDim.Render(strings.Repeat(".", dots)),
-		ledgerInk.Render(suffix),
+		ledgerHeat(t).Render(suffix),
 		ledgerFaint.Render(tokens+" tok"),
 	)
 }
