@@ -244,6 +244,25 @@ Sem gráfico traffic-light de verde/amarelo/vermelho pra tudo — só fica
 vermelho quando o orçamento realmente estourou. O resto é o número, o
 sparkline da tendência dos últimos dias e o extrato por dia/modelo.
 
+**`agentmesh usage --tmux`** dá pro recibo uma sessão tmux só dele —
+sobe (ou reconecta a) uma sessão `agentmesh-usage` que fica se
+redesenhando sozinha e te joga dentro dela, igual `agentmesh attach`
+faz com um agente. `Ctrl+B D` desanexa sem matar nada: ela continua
+rodando em background, e o próximo `agentmesh usage --tmux` — desse
+terminal ou de qualquer outro — só reconecta em vez de duplicar.
+
+```bash
+agentmesh usage --tmux                       # entra na sessão, cria se não existir
+agentmesh usage --watch                      # o mesmo recibo se redesenhando, sem tmux (Ctrl+C sai)
+agentmesh usage --watch --interval 30        # troca o intervalo de atualização (default 15s)
+```
+
+A sessão `agentmesh-usage` sobe com a status bar do tmux **desligada**
+de propósito — o pane inteiro já é o recibo completo, então repetir os
+mesmos valores em miniatura no rodapé seria só duplicar informação.
+Isso é diferente da barrinha compacta abaixo, que existe justamente
+pra ficar visível *junto* de outra coisa (o terminal de um agente).
+
 **No rodapé de todo agente `claude` que você spawna** já vem uma versão
 compacta, atualizada sozinha a cada 20s pelo tmux — não precisa abrir
 nada separado, é só `agentmesh attach nome` e olhar embaixo:

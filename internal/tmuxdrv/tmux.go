@@ -106,6 +106,17 @@ func SetStatusBar(sessionName string) error {
 	return err
 }
 
+// HideStatusBar turns a session's status bar off entirely. Meant for a
+// session whose one pane IS already the dashboard (agentmesh's own usage
+// receipt, printed full-screen and self-refreshing) — a status-right bar
+// repeating the same $ figures in miniature underneath it is just
+// clutter, not a second source of information. Best-effort like
+// SetStatusBar: a spawn/create shouldn't fail over a cosmetic option.
+func HideStatusBar(sessionName string) error {
+	_, err := run("set-option", "-t", sessionName, "status", "off")
+	return err
+}
+
 // AttachArgs returns the argv (without the leading "tmux") to exec for an
 // interactive attach. readOnly uses tmux's own read-only client mode
 // (`-r`) — no custom protocol needed, tmux enforces it natively.

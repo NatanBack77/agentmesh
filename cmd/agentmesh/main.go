@@ -121,6 +121,9 @@ func usage() {
                                                   spawna 2 agentes de verdade e faz
                                                   um mandar mensagem pro outro sozinho
   agentmesh usage [--days N]                     custo/tokens do Claude Code (hoje + últimos N dias, default 7)
+  agentmesh usage --watch [--interval S]         mesmo recibo, redesenhado sozinho (default 15s, feito p/ --tmux)
+  agentmesh usage --tmux                         recibo numa sessão tmux própria; entra nela e fica se atualizando
+                                                  mesmo depois que você dá Ctrl+B D (reattach: agentmesh usage --tmux)
 
 Requer tmux instalado. Variáveis de ambiente: AGENTMESH_URL (default
 http://127.0.0.1:8990), AGENTMESH_TERMINAL_ID (identidade do agente que
@@ -571,10 +574,16 @@ func waitStatus(name string, timeout time.Duration, wanted ...string) (string, e
 // this machine (not just agents spawned through agentmesh).
 func cmdUsage(args []string) error {
 	daysStr, args := flagValue(args, "--days")
-	oneline := false
+	intervalStr, args := flagValue(args, "--interval")
+	oneline, watch, useTmux := false, false, false
 	for _, a := range args {
-		if a == "--oneline" {
+		switch a {
+		case "--oneline":
 			oneline = true
+		case "--watch":
+			watch = true
+		case "--tmux":
+			useTmux = true
 		}
 	}
 	days := 7
@@ -583,6 +592,29 @@ func cmdUsage(args []string) error {
 			days = d
 		}
 	}
+	interval := 15 * time.Second
+	if intervalStr != "" {
+		if s, err := strconv.Atoi(intervalStr); err == nil && s > 0 {
+			interval = time.Duration(s) * time.Second
+		}
+	}
+
+	dailyBudget := envFloat("AGENTMESH_DAILY_BUDGET", 50)
+	weeklyBudget := envFloat("AGENTMESH_WEEKLY_BUDGET", 300)
+
+	// `--tmux` gets you the receipt living in its OWN tmux session — not a
+	// browser tab, not a one-shot printout: a session you can attach to
+	// from any terminal, that keeps refreshing itself even after you
+	// detach (Ctrl+B D), same as any agentmesh-spawned agent.
+	if useTmux {
+		return cmdUsageTmux(days, interval)
+	}
+	// `--watch` is what actually runs inside that session (and works fine
+	// stand-alone too): repaints the receipt in place, like `watch(1)`.
+	if watch {
+		return cmdUsageWatch(days, interval, dailyBudget, weeklyBudget)
+	}
+
 	var rep usagepkg.Report
 	if oneline {
 		// The full scan takes several seconds (it walks every transcript
@@ -609,8 +641,6 @@ func cmdUsage(args []string) error {
 		// shows this in its own footer, refreshed by tmux every 20s. tmux
 		// re-parses #[...] style tags found INSIDE a #(command) result, so
 		// this renders as real color in the status line, not literal text.
-		dailyBudget := envFloat("AGENTMESH_DAILY_BUDGET", 50)
-		weeklyBudget := envFloat("AGENTMESH_WEEKLY_BUDGET", 300)
 		fmt.Printf("💰 hoje %s $%.2f  ·  7d %s $%.2f",
 			tmuxBar(rep.Today.CostUSD/dailyBudget*100, 10),
 			rep.Today.CostUSD,
@@ -620,10 +650,73 @@ func cmdUsage(args []string) error {
 		return nil
 	}
 
-	dailyBudget := envFloat("AGENTMESH_DAILY_BUDGET", 50)
-	weeklyBudget := envFloat("AGENTMESH_WEEKLY_BUDGET", 300)
 	printUsageReport(rep, days, dailyBudget, weeklyBudget)
 	return nil
+}
+
+// cmdUsageWatch repaints the receipt in place on an interval, like
+// `watch(1) agentmesh usage` but without spawning a shell — moves the
+// cursor home and clears from there instead of a full-screen clear, so the
+// header doesn't flash blank between repaints. Ctrl+C (or the tmux session
+// that owns it dying) is the only way out; there's no "N runs" limit.
+func cmdUsageWatch(days int, interval time.Duration, dailyBudget, weeklyBudget float64) error {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	fmt.Print("\x1b[?25l")       // hide cursor while it's redrawing
+	defer fmt.Print("\x1b[?25h") // always restore it on the way out
+
+	for {
+		rep, err := usageCached(days)
+		fmt.Print("\x1b[H\x1b[0J")
+		if err != nil {
+			fmt.Println("agentmesh: erro lendo transcripts:", err)
+		} else {
+			printUsageReport(rep, days, dailyBudget, weeklyBudget)
+			fmt.Println()
+			fmt.Println(ledgerFaint.Render(fmt.Sprintf("  atualiza a cada %s · %s · Ctrl+C sai",
+				interval, time.Now().Format("15:04:05"))))
+		}
+		select {
+		case <-sigCh:
+			return nil
+		case <-time.After(interval):
+		}
+	}
+}
+
+// cmdUsageTmux gives the receipt its own persistent tmux session — not a
+// one-shot printout, not a browser tab: `agentmesh usage --tmux` creates
+// (or reuses) a session named agentmeshUsageSession running the --watch
+// loop above, then attaches to it. Detach with Ctrl+B D like any other
+// agentmesh session; it keeps refreshing in the background either way, and
+// the next `agentmesh usage --tmux` (from this terminal or another one)
+// just reattaches instead of spawning a second copy.
+const agentmeshUsageSession = "agentmesh-usage"
+
+func cmdUsageTmux(days int, interval time.Duration) error {
+	if err := tmuxdrv.Available(); err != nil {
+		return err
+	}
+	if !tmuxdrv.HasSession(agentmeshUsageSession) {
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		cwd, _ := os.Getwd()
+		watchArgs := []string{"usage", "--watch", "--days", strconv.Itoa(days), "--interval", strconv.Itoa(int(interval.Seconds()))}
+		if err := tmuxdrv.NewSession(agentmeshUsageSession, cwd, exe, watchArgs, nil); err != nil {
+			return err
+		}
+		// No status-right bar here: the whole pane IS the dashboard already
+		// (the receipt this session redraws), so a mini version of the same
+		// $ figures in the footer would just be the same number twice.
+		_ = tmuxdrv.HideStatusBar(agentmeshUsageSession)
+	}
+	tmuxArgs := tmuxdrv.AttachArgs(agentmeshUsageSession, false)
+	cmd := exec.Command("tmux", tmuxArgs...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return cmd.Run()
 }
 
 // usage report is styled like a thermal-printer receipt — one amber "ink"
