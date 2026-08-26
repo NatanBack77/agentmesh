@@ -641,7 +641,7 @@ func cmdUsage(args []string) error {
 		// shows this in its own footer, refreshed by tmux every 20s. tmux
 		// re-parses #[...] style tags found INSIDE a #(command) result, so
 		// this renders as real color in the status line, not literal text.
-		fmt.Printf("#[fg=default,bg=default]💰 hoje %s $%.2f  ·  7d %s $%.2f",
+		fmt.Printf("#[fg=default,bg=default]💰 hoje %s ~$%.2f  ·  7d %s ~$%.2f",
 			tmuxBar(rep.Today.CostUSD/dailyBudget*100, 10),
 			rep.Today.CostUSD,
 			tmuxBar(rep.Week.CostUSD/weeklyBudget*100, 10),
@@ -803,7 +803,9 @@ func printUsageReport(rep usagepkg.Report, days int, dailyBudget, weeklyBudget f
 
 	fmt.Println()
 	fmt.Println(ledgerPerforation())
-	fmt.Println(ledgerFaint.Render("  estimativa direcional · lido de ~/.claude/projects · não é fatura"))
+	fmt.Println(ledgerFaint.Render("  ~ = custo equivalente se fosse cobrado por token na API"))
+	fmt.Println(ledgerFaint.Render("  isso NÃO é o limite/quota do seu plano Pro/Max — pra isso, veja"))
+	fmt.Println(ledgerFaint.Render("  claude.ai → Configurações → Uso · aqui é só direcional"))
 	fmt.Println(ledgerPerforation())
 }
 
@@ -837,7 +839,7 @@ func ledgerStamp(label string, cost, budget float64, tokens string, trend []floa
 		pctStyle, status = ledgerInk, "  ▲ quase lá"
 	}
 
-	amount := fmt.Sprintf("$%.2f", cost)
+	amount := fmt.Sprintf("~$%.2f", cost)
 	top := fmt.Sprintf("  %s%s%s",
 		ledgerBright.Render(label),
 		strings.Repeat(" ", max(1, ledgerWidth-len(label)-len(amount)-2)),
@@ -902,7 +904,7 @@ func ledgerSection(title string) string {
 // amber→red gradient relative to it, so the priciest row in each section
 // glows hottest instead of every row sharing one flat accent.
 func ledgerLine(label string, cost, maxCost float64, tokens string) string {
-	amount := fmt.Sprintf("$%.2f", cost)
+	amount := fmt.Sprintf("~$%.2f", cost)
 	suffix := "  " + amount
 	dots := max(ledgerWidth-len(label)-len(suffix)-2, 3)
 	t := 0.0

@@ -216,6 +216,17 @@ providers ainda não têm esse padrão mapeado.)
 Duas formas de ver, pro mesmo dado — uma pra olhar quando quiser, outra
 que fica sempre visível sem você pedir nada.
 
+**Importante pra quem tá no plano Pro/Max (assinatura, não API avulsa):**
+o `$` aqui é **custo equivalente** — quanto esse mesmo uso custaria se
+fosse cobrado por token no preço de lista da API (`~$`, com til de
+propósito). Isso **não é** o limite/quota real da sua assinatura, que é
+medido em % de sessão/semana, não em dólar — essa % real só existe em
+claude.ai → Configurações → Uso, o agentmesh não tem acesso a ela (é
+conta da Anthropic, não tem endpoint local pra isso). Se você tá numa
+assinatura, é normal o `~$` aqui parecer bem maior que o que você paga
+de fato — é exatamente a diferença entre pagar por token e pagar um
+plano fechado. Sirva pra comparar dia com dia, não pra prever a fatura.
+
 **`agentmesh usage`** dá o extrato completo, formatado como um recibo:
 
 ```
@@ -223,16 +234,16 @@ que fica sempre visível sem você pedir nada.
          A G E N T M E S H   recibo de uso · claude
 ∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌∴╌
 
-  HOJE                                                   $2.03
+  HOJE                                                  ~$2.03
   3.7M tokens   █▇▁ 4% de 50/dia
 
-  7 DIAS                                               $383.83
+  7 DIAS                                              ~$383.83
   1099.6M tokens   █▇▁ 128% de 300/sem  ▲ estourou
 
 ················· POR DIA ····································
-  2026-08-23 .........................................  $200.42  595.8M tok
-  2026-08-24 .........................................  $181.39  500.0M tok
-  2026-08-25 ...........................................  $2.03  3.7M tok
+  2026-08-23 ........................................  ~$200.42  595.8M tok
+  2026-08-24 ........................................  ~$181.39  500.0M tok
+  2026-08-25 ..........................................  ~$2.03  3.7M tok
 ```
 
 ```bash
@@ -266,7 +277,7 @@ pra ficar visível *junto* de outra coisa (o terminal de um agente).
 **No rodapé de todo agente `claude` que você spawna** já vem uma versão
 compacta, atualizada sozinha a cada 20s pelo tmux — não precisa abrir
 nada separado, é só `agentmesh attach nome` e olhar embaixo:
-`💰 hoje ██████░░░░ 62% $31.20 · 7d ███░░░░░░░ 34% $102.40`
+`💰 hoje ██████░░░░ 62% ~$31.20 · 7d ███░░░░░░░ 34% ~$102.40`
 (azul <60%, âmbar 60–85%, vermelho ≥85% do orçamento — não verde: o
 tema padrão do tmux já usa fundo verde, e uma barra verde some nele).
 
