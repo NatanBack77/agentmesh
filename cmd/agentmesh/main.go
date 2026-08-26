@@ -615,6 +615,23 @@ func cmdUsage(args []string) error {
 		return cmdUsageWatch(days, interval, dailyBudget, weeklyBudget)
 	}
 
+	if oneline {
+		// Real plan quota (session %, weekly %, same numbers claude.ai's
+		// own Configurações → Uso page shows) is what the footer leads
+		// with when it's available — it's what a Pro/Max subscriber
+		// actually runs out of. Only falls through to the local token-cost
+		// estimate below when quota isn't available at all (API-key auth,
+		// offline, endpoint rate-limited): a $ number is still better than
+		// a blank footer for that case.
+		if q, err := quotaCached(); err == nil {
+			fmt.Printf("#[bg=default]⏱ sessão %s %s  ·  📆 semana %s %s",
+				tmuxBar(q.SessionPct, 10), fmtCountdown(time.Until(q.SessionResetsAt)),
+				tmuxBar(q.WeekPct, 10), fmtWeekday(q.WeekResetsAt),
+			)
+			return nil
+		}
+	}
+
 	var rep usagepkg.Report
 	if oneline {
 		// The full scan takes several seconds (it walks every transcript
@@ -641,7 +658,7 @@ func cmdUsage(args []string) error {
 		// shows this in its own footer, refreshed by tmux every 20s. tmux
 		// re-parses #[...] style tags found INSIDE a #(command) result, so
 		// this renders as real color in the status line, not literal text.
-		fmt.Printf("#[fg=default,bg=default]💰 hoje %s ~$%.2f  ·  7d %s ~$%.2f",
+		fmt.Printf("#[bg=default]💰 hoje %s ~$%.2f  ·  7d %s ~$%.2f",
 			tmuxBar(rep.Today.CostUSD/dailyBudget*100, 10),
 			rep.Today.CostUSD,
 			tmuxBar(rep.Week.CostUSD/weeklyBudget*100, 10),
@@ -949,6 +966,52 @@ func usageCached(days int) (usagepkg.Report, error) {
 	return rep, nil
 }
 
+// quotaCached wraps usagepkg.FetchQuota with a 120s file cache, shared by
+// every agentmesh session's status bar — the endpoint it calls
+// (api.anthropic.com/api/oauth/usage) is documented to rate-limit hard
+// under frequent polling (see anthropics/claude-code#31021), and every
+// claude session spawned re-runs `agentmesh usage --oneline` on its own
+// 20s tmux status-interval, so without a shared cache N sessions would
+// mean N requests every 20s instead of one every two minutes total.
+//
+// On a failed fetch (offline, rate limited, token expired) this falls
+// back to whatever's on disk even if stale, and re-stamps that file's
+// mtime — so a persistent outage backs off to one retry per window
+// instead of hammering the endpoint every single tick.
+func quotaCached() (usagepkg.Quota, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return usagepkg.Quota{}, err
+	}
+	cachePath := home + "/.agentmesh/quota-cache.json"
+
+	if fi, err := os.Stat(cachePath); err == nil && time.Since(fi.ModTime()) < 120*time.Second {
+		if b, err := os.ReadFile(cachePath); err == nil {
+			var q usagepkg.Quota
+			if json.Unmarshal(b, &q) == nil {
+				return q, nil
+			}
+		}
+	}
+
+	q, ferr := usagepkg.FetchQuota()
+	if ferr != nil {
+		if b, err := os.ReadFile(cachePath); err == nil {
+			_ = os.WriteFile(cachePath, b, 0o644) // rewrite bumps mtime = backoff
+			var stale usagepkg.Quota
+			if json.Unmarshal(b, &stale) == nil {
+				return stale, nil
+			}
+		}
+		return usagepkg.Quota{}, ferr
+	}
+	if b, err := json.Marshal(q); err == nil {
+		_ = os.MkdirAll(home+"/.agentmesh", 0o755)
+		_ = os.WriteFile(cachePath, b, 0o644)
+	}
+	return q, nil
+}
+
 func envFloat(name string, def float64) float64 {
 	if v := os.Getenv(name); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
@@ -992,21 +1055,49 @@ func tmuxBar(pct float64, width int) string {
 		color = "colour214" // amber
 	}
 	var b strings.Builder
-	// Hard reset BEFORE drawing anything: whatever tmux rendered just
-	// before this segment (window-status-current-style, a theme plugin's
-	// own bg color, ...) otherwise bleeds straight into the bar — the
-	// filled/unfilled glyphs inherit that leftover background and the
-	// whole thing reads as one solid colored block, not a progress bar.
-	b.WriteString("#[fg=default,bg=default]")
+	// Hard reset BEFORE drawing anything — but background only. Touching
+	// fg here too (an earlier version did "#[fg=default,bg=default]")
+	// made the "42% ~$21.00" text after the bar switch to a different,
+	// off-theme foreground color instead of matching the rest of the
+	// status line: tmux's "default" fg isn't the ambient status-style's
+	// own fg (usually set once at the very start of the line), it's the
+	// bare terminal default, which can visibly clash. Background is the
+	// only thing actually ours to reset here.
+	b.WriteString("#[bg=default]")
 	b.WriteString("#[bg=" + color + "]")
 	b.WriteString(strings.Repeat(" ", filled))
 	b.WriteString("#[bg=colour234]") // near-black track — reads against any status-bar theme
 	b.WriteString(strings.Repeat(" ", width-filled))
-	// Reset again on the way out so "42% $21.00" isn't left sitting on a
-	// colored background too.
-	b.WriteString("#[fg=default,bg=default] ")
+	b.WriteString("#[bg=default] ")
 	fmt.Fprintf(&b, "%.0f%%", pct)
 	return b.String()
+}
+
+// fmtCountdown renders a time.Until()-style duration as "2h15" or "15m" —
+// compact enough for a 90-col status-right, matching how claude.ai's own
+// usage page phrases a session reset ("Reinicia em 2 h 47 min").
+func fmtCountdown(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh%02d", h, m)
+	}
+	return fmt.Sprintf("%dm", m)
+}
+
+// fmtWeekday renders a reset timestamp as "sex 17:00" (local time) — the
+// weekly quota resets far enough out that a countdown alone isn't as
+// legible as knowing which day, same as claude.ai's "Reinicia seg., 16:59".
+func fmtWeekday(t time.Time) string {
+	if t.IsZero() {
+		return "?"
+	}
+	t = t.Local()
+	days := [...]string{"dom", "seg", "ter", "qua", "qui", "sex", "sáb"}
+	return fmt.Sprintf("%s %02d:%02d", days[t.Weekday()], t.Hour(), t.Minute())
 }
 
 func fmtTokens(t usagepkg.Totals) string {

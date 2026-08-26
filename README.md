@@ -277,15 +277,25 @@ pra ficar visível *junto* de outra coisa (o terminal de um agente).
 **No rodapé de todo agente `claude` que você spawna** já vem uma versão
 compacta, atualizada sozinha a cada 20s pelo tmux — não precisa abrir
 nada separado, é só `agentmesh attach nome` e olhar embaixo:
-`💰 hoje ██████░░░░ 62% ~$31.20 · 7d ███░░░░░░░ 34% ~$102.40`
-(azul <60%, âmbar 60–85%, vermelho ≥85% do orçamento — não verde: o
-tema padrão do tmux já usa fundo verde, e uma barra verde some nele).
+`⏱ sessão ███░░░░░░░ 33% 2h31  ·  📆 semana █░░░░░░░░░ 14% seg 17:00`
+(azul <60%, âmbar 60–85%, vermelho ≥85% — não verde: o tema padrão do
+tmux já usa fundo verde, e uma barra verde some nele).
 
-Os dois lêem os mesmos dados: os transcripts que o **Claude Code já
-grava sozinho** em `~/.claude/projects/**/*.jsonl`. Não precisa do motor
-rodando, e cobre TODO uso de Claude Code na máquina, não só os agentes
-que o agentmesh spawnou. Custo é estimativa (tabela de preço fixa no
-código, não é integração de billing) — direcional, não é fatura.
+Essa barrinha usa a **quota real da sua assinatura** — os mesmos
+números de claude.ai → Configurações → Uso (sessão de 5h, semana),
+lidos do mesmo endpoint que aquela tela chama, com o token OAuth que
+o próprio `claude` já salva em `~/.claude/.credentials.json` (nenhum
+login novo, nenhuma credencial do agentmesh). Só cai pro custo
+estimado em `$` (abaixo) se você não tiver login OAuth salvo — API
+key pura não tem quota de assinatura pra reportar.
+
+**`agentmesh usage` (o recibo completo) e o extrato por dia/modelo**
+usam uma métrica diferente: os transcripts que o **Claude Code já
+grava sozinho** em `~/.claude/projects/**/*.jsonl`, convertidos pro
+preço de lista da API — é **custo equivalente** (`~$`), não a quota
+da assinatura, e os dois números não precisam bater. Não precisa do
+motor rodando, e cobre TODO uso de Claude Code na máquina, não só os
+agentes que o agentmesh spawnou.
 
 Orçamento padrão: $50/dia e $300/semana. Pra ajustar ao seu plano real:
 
