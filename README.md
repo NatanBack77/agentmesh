@@ -285,9 +285,18 @@ Essa barrinha usa a **quota real da sua assinatura** — os mesmos
 números de claude.ai → Configurações → Uso (sessão de 5h, semana),
 lidos do mesmo endpoint que aquela tela chama, com o token OAuth que
 o próprio `claude` já salva em `~/.claude/.credentials.json` (nenhum
-login novo, nenhuma credencial do agentmesh). Só cai pro custo
-estimado em `$` (abaixo) se você não tiver login OAuth salvo — API
-key pura não tem quota de assinatura pra reportar.
+login novo, nenhuma credencial do agentmesh). Não fixa plano nenhum
+no código — só repassa a % que a Anthropic já calculou pra sua conta:
+
+- **Pro / Max 5x / Max 20x** (testado ao vivo numa conta Pro): mostra
+  normal, sessão e semana sempre preenchidas.
+- **Team / Enterprise**: deve funcionar pros mesmos dois campos; a
+  resposta desses planos costuma trazer campos extras (limite por
+  membro, orçamento da org) que o agentmesh ignora de propósito — não
+  testado ao vivo contra um desses ainda.
+- **Free, ou API key pura sem login `claude.ai`**: sem
+  `claudeAiOauth` no credentials → cai pro custo estimado em `$`
+  (abaixo). API key avulsa não tem quota de assinatura pra reportar.
 
 **`agentmesh usage` (o recibo completo) e o extrato por dia/modelo**
 usam uma métrica diferente: os transcripts que o **Claude Code já
