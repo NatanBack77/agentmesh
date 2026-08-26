@@ -641,7 +641,7 @@ func cmdUsage(args []string) error {
 		// shows this in its own footer, refreshed by tmux every 20s. tmux
 		// re-parses #[...] style tags found INSIDE a #(command) result, so
 		// this renders as real color in the status line, not literal text.
-		fmt.Printf("💰 hoje %s $%.2f  ·  7d %s $%.2f",
+		fmt.Printf("#[fg=default,bg=default]💰 hoje %s $%.2f  ·  7d %s $%.2f",
 			tmuxBar(rep.Today.CostUSD/dailyBudget*100, 10),
 			rep.Today.CostUSD,
 			tmuxBar(rep.Week.CostUSD/weeklyBudget*100, 10),
@@ -962,6 +962,13 @@ func envFloat(name string, def float64) float64 {
 // colored bar in the terminal footer, not literal escape text. pct is
 // clamped to [0,100]; color follows the same ok/warning/danger thresholds
 // (60/85%) used elsewhere for usage indicators.
+//
+// "ok" is blue, not green: tmux's own factory-default status-style is a
+// green background (colour42), and a green fill on an unconfigured tmux
+// just merges into that backdrop — confirmed by capturing the actual
+// bytes tmux sends a client, where the bar's colour46 sat directly next
+// to the ambient colour42 with nothing to tell them apart. Blue has no
+// such collision with any common tmux default/theme.
 func tmuxBar(pct float64, width int) string {
 	if pct < 0 {
 		pct = 0
@@ -970,19 +977,27 @@ func tmuxBar(pct float64, width int) string {
 		pct = 100
 	}
 	filled := int(pct/100*float64(width) + 0.5)
-	color := "colour46" // green
+	color := "colour39" // blue ("ok")
 	switch {
 	case pct >= 85:
 		color = "colour196" // red
 	case pct >= 60:
-		color = "colour220" // yellow
+		color = "colour214" // amber
 	}
 	var b strings.Builder
-	b.WriteString("#[fg=" + color + "]")
-	b.WriteString(strings.Repeat("█", filled))
-	b.WriteString("#[fg=colour238]")
-	b.WriteString(strings.Repeat("░", width-filled))
-	b.WriteString("#[default] ")
+	// Hard reset BEFORE drawing anything: whatever tmux rendered just
+	// before this segment (window-status-current-style, a theme plugin's
+	// own bg color, ...) otherwise bleeds straight into the bar — the
+	// filled/unfilled glyphs inherit that leftover background and the
+	// whole thing reads as one solid colored block, not a progress bar.
+	b.WriteString("#[fg=default,bg=default]")
+	b.WriteString("#[bg=" + color + "]")
+	b.WriteString(strings.Repeat(" ", filled))
+	b.WriteString("#[bg=colour234]") // near-black track — reads against any status-bar theme
+	b.WriteString(strings.Repeat(" ", width-filled))
+	// Reset again on the way out so "42% $21.00" isn't left sitting on a
+	// colored background too.
+	b.WriteString("#[fg=default,bg=default] ")
 	fmt.Fprintf(&b, "%.0f%%", pct)
 	return b.String()
 }

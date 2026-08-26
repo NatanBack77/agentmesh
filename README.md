@@ -267,7 +267,8 @@ pra ficar visível *junto* de outra coisa (o terminal de um agente).
 compacta, atualizada sozinha a cada 20s pelo tmux — não precisa abrir
 nada separado, é só `agentmesh attach nome` e olhar embaixo:
 `💰 hoje ██████░░░░ 62% $31.20 · 7d ███░░░░░░░ 34% $102.40`
-(verde <60%, amarelo 60–85%, vermelho ≥85% do orçamento).
+(azul <60%, âmbar 60–85%, vermelho ≥85% do orçamento — não verde: o
+tema padrão do tmux já usa fundo verde, e uma barra verde some nele).
 
 Os dois lêem os mesmos dados: os transcripts que o **Claude Code já
 grava sozinho** em `~/.claude/projects/**/*.jsonl`. Não precisa do motor
