@@ -222,11 +222,31 @@ func (e *Engine) Spawn(req SpawnRequest) (SpawnResult, error) {
 	}
 
 	args := req.Args
-	if provider == ProviderClaudeCode {
+	switch provider {
+	case ProviderClaudeCode:
 		// Claude Code supports handing it system-level context at spawn —
 		// use that, it's the most reliable delivery (present from the very
 		// first token, never racing the boot screens).
-		args = append([]string{"--append-system-prompt", coordinationHint}, args...)
+		//
+		// --dangerously-skip-permissions: every mesh agent runs fully
+		// autonomous by design (see ProviderCodex below for the same
+		// call on the other side) — a `send`/`handoff` between agents is
+		// meant to complete unattended. Without this, the FIRST Bash/
+		// Edit/WebSearch/etc call of a task blocks on a permission menu
+		// that nobody is watching, and a blocking handoff just sits there
+		// until its timeout (600s default) expires — confirmed live: a
+		// codex->claude handoff that needed WebSearch hung ~10min with no
+		// visible progress until the caller gave up and killed it. This
+		// trades the per-tool confirmation for actual autonomy, which is
+		// the whole point of spawning through agentmesh instead of a
+		// plain interactive session.
+		args = append([]string{"--append-system-prompt", coordinationHint, "--dangerously-skip-permissions"}, args...)
+	case ProviderCodex:
+		// Codex's equivalent of the above: skip its own approval prompts
+		// AND the bwrap sandbox restrictions (see AllowlistPath's sibling
+		// concern in cmd/agentmesh's --help — this is the same autonomy
+		// trade at the process level instead of the directory level).
+		args = append([]string{"--dangerously-bypass-approvals-and-sandbox"}, args...)
 	}
 
 	if err := tmuxdrv.NewSession(terminalID, cwd, req.Command, args, env); err != nil {
