@@ -184,6 +184,10 @@ func (e *Engine) Spawn(req SpawnRequest) (SpawnResult, error) {
 	}
 	cwd, _ = filepath.Abs(cwd)
 
+	if err := checkAllowed(cwd); err != nil {
+		return SpawnResult{}, err
+	}
+
 	terminalID := uuid.New().String()
 	provider := ProviderFromCommand(filepath.Base(req.Command))
 
@@ -199,6 +203,12 @@ func (e *Engine) Spawn(req SpawnRequest) (SpawnResult, error) {
 			branch = "agentmesh/" + safeBranchName(req.Name, terminalID)
 		}
 		worktreePath = filepath.Join(repoRoot, ".agentmesh", "worktrees", safeBranchName(req.Name, terminalID))
+		// repoRoot can be an ancestor of cwd (git repo root above the
+		// requested --cwd) — re-check in case that ancestor climbed
+		// outside whatever narrower allowlist entry let cwd itself pass.
+		if err := checkAllowed(worktreePath); err != nil {
+			return SpawnResult{}, err
+		}
 		if err := gitwt.AddWorktree(repoRoot, worktreePath, branch); err != nil {
 			return SpawnResult{}, err
 		}

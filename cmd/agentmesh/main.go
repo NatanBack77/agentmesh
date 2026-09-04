@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,8 +52,10 @@ func main() {
 	// ficam de fora. É isto que deixa `agentmesh spawn ...` funcionar de
 	// primeira sem exigir `agentmesh serve &` manual antes.
 	switch cmd {
-	case "serve", "-h", "--help", "help", "usage", "cost":
-		// "usage"/"cost" read local transcript files directly — no motor needed.
+	case "serve", "-h", "--help", "help", "usage", "cost", "allowlist":
+		// "usage"/"cost" read local transcript files directly, and
+		// "allowlist" only edits ~/.agentmesh/allowlist — neither needs
+		// the motor running.
 	default:
 		if err := ensureServer(); err != nil {
 			fmt.Fprintln(os.Stderr, "agentmesh:", err)
@@ -87,6 +90,8 @@ func main() {
 		err = cmdDemo(args)
 	case "usage", "cost":
 		err = cmdUsage(args)
+	case "allowlist":
+		err = cmdAllowlist(args)
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -124,11 +129,29 @@ func usage() {
   agentmesh usage --watch [--interval S]         mesmo recibo, redesenhado sozinho (default 15s, feito p/ --tmux)
   agentmesh usage --tmux                         recibo numa sessão tmux própria; entra nela e fica se atualizando
                                                   mesmo depois que você dá Ctrl+B D (reattach: agentmesh usage --tmux)
+  agentmesh allowlist [ls]                       lista os diretórios permitidos pra spawn (vazia = sem restrição)
+  agentmesh allowlist add DIR                    permite spawns com --cwd dentro de DIR (e subpastas)
+  agentmesh allowlist rm DIR                     remove DIR da allowlist
 
 Requer tmux instalado. Variáveis de ambiente: AGENTMESH_URL (default
 http://127.0.0.1:8990), AGENTMESH_TERMINAL_ID (identidade do agente que
 está chamando, herdada automaticamente em processos que o próprio
-agentmesh spawnou).
+agentmesh spawnou), AGENTMESH_ALLOWED_DIRS (diretórios permitidos p/ spawn,
+separados por ":" — sobrepõe ~/.agentmesh/allowlist por completo quando
+definida).
+
+## Allowlist de diretórios
+
+Por padrão (sem allowlist configurada) "agentmesh spawn --cwd DIR" aceita
+qualquer diretório — o agente roda com o seu próprio usuário do SO, então
+tem o mesmo alcance de arquivos que você tem num terminal ali. Populando
+~/.agentmesh/allowlist (um caminho absoluto por linha, "#" comenta, "~"
+expande) ou a env AGENTMESH_ALLOWED_DIRS, "spawn" passa a recusar qualquer
+--cwd que não esteja dentro de um dos diretórios listados (subpastas
+contam). Isso restringe só o DIRETÓRIO INICIAL da sessão — não é sandbox:
+nada impede o agente já rodando de "cd .." ou ler caminhos absolutos fora
+dali, é só o que a ferramenta de permissão do próprio CLI (claude/codex)
+deixar.
 `)
 }
 
@@ -566,6 +589,152 @@ func waitStatus(name string, timeout time.Duration, wanted ...string) (string, e
 		time.Sleep(400 * time.Millisecond)
 	}
 	return last, fmt.Errorf("timeout esperando %q chegar em %v (ficou em %q)", name, wanted, last)
+}
+
+// cmdAllowlist manages ~/.agentmesh/allowlist directly (plain file I/O, no
+// motor involved) — the same file mesh.checkAllowed reads on every spawn.
+func cmdAllowlist(args []string) error {
+	sub := "ls"
+	if len(args) > 0 {
+		sub = args[0]
+		args = args[1:]
+	}
+
+	path, err := mesh.AllowlistPath()
+	if err != nil {
+		return fmt.Errorf("não consegui resolver %s: %w", "~/.agentmesh/allowlist", err)
+	}
+
+	switch sub {
+	case "ls", "list", "":
+		if v := os.Getenv(mesh.AllowlistEnvVar); v != "" {
+			fmt.Printf("%s está definida e sobrepõe o arquivo por completo:\n", mesh.AllowlistEnvVar)
+			for _, p := range strings.Split(v, ":") {
+				if p = strings.TrimSpace(p); p != "" {
+					fmt.Println("  " + p)
+				}
+			}
+			return nil
+		}
+		dirs, err := readAllowlistFile(path)
+		if err != nil {
+			return err
+		}
+		if len(dirs) == 0 {
+			fmt.Printf("allowlist vazia (%s não existe ou está sem entradas) — spawn aceita qualquer --cwd.\n", path)
+			return nil
+		}
+		fmt.Printf("diretórios permitidos (%s):\n", path)
+		for _, d := range dirs {
+			fmt.Println("  " + d)
+		}
+		return nil
+
+	case "add":
+		if len(args) != 1 {
+			return fmt.Errorf("uso: agentmesh allowlist add DIR")
+		}
+		abs, err := filepath.Abs(expandHomeCLI(args[0]))
+		if err != nil {
+			return err
+		}
+		dirs, err := readAllowlistFile(path)
+		if err != nil {
+			return err
+		}
+		for _, d := range dirs {
+			if d == abs {
+				fmt.Println("já estava na allowlist:", abs)
+				return nil
+			}
+		}
+		dirs = append(dirs, abs)
+		if err := writeAllowlistFile(path, dirs); err != nil {
+			return err
+		}
+		fmt.Println("adicionado:", abs)
+		return nil
+
+	case "rm", "remove":
+		if len(args) != 1 {
+			return fmt.Errorf("uso: agentmesh allowlist rm DIR")
+		}
+		abs, err := filepath.Abs(expandHomeCLI(args[0]))
+		if err != nil {
+			return err
+		}
+		dirs, err := readAllowlistFile(path)
+		if err != nil {
+			return err
+		}
+		kept := dirs[:0]
+		removed := false
+		for _, d := range dirs {
+			if d == abs {
+				removed = true
+				continue
+			}
+			kept = append(kept, d)
+		}
+		if !removed {
+			fmt.Println("não estava na allowlist:", abs)
+			return nil
+		}
+		if err := writeAllowlistFile(path, kept); err != nil {
+			return err
+		}
+		fmt.Println("removido:", abs)
+		return nil
+
+	default:
+		return fmt.Errorf("uso: agentmesh allowlist [ls|add DIR|rm DIR]")
+	}
+}
+
+func expandHomeCLI(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	if strings.HasPrefix(p, "~/") {
+		return filepath.Join(home, p[2:])
+	}
+	return p
+}
+
+func readAllowlistFile(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var dirs []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		dirs = append(dirs, line)
+	}
+	return dirs, nil
+}
+
+func writeAllowlistFile(path string, dirs []string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	var sb strings.Builder
+	sb.WriteString("# um diretório absoluto por linha — spawn só aceita --cwd dentro de um deles\n")
+	sb.WriteString("# (arquivo gerenciado por `agentmesh allowlist add/rm`, mas pode editar à mão)\n")
+	for _, d := range dirs {
+		sb.WriteString(d + "\n")
+	}
+	return os.WriteFile(path, []byte(sb.String()), 0o644)
 }
 
 // cmdUsage reports real token usage + estimated cost by reading Claude
