@@ -54,9 +54,29 @@ func providerPatterns(p Provider) statusPatterns {
 		}
 	case ProviderCodex:
 		return statusPatterns{
-			idle:       regexp.MustCompile(`^\s*[>$]\s`),
-			processing: regexp.MustCompile(`(?i)thinking|processing|\.\.\.|generating`),
-			completed:  regexp.MustCompile(`(?i)done|completed|finished`),
+			// Codex's real idle composer shows the literal placeholder
+			// below when empty — its prompt glyph is "›" (U+203A), not
+			// ASCII '>'/'$', and it's never the first line of the capture,
+			// so this NEEDS (?m): the old `^\s*[>$]\s` without it only
+			// tested position 0 of the whole pane, matched neither the
+			// real prompt (wrong glyph) NOR anything reliably — except,
+			// by accident, the trust-prompt dialog below (its first line
+			// starts with literal "> "), which made spawn/send think a
+			// brand-new, not-yet-trusted Codex was already idle and type
+			// the coordination hint straight into that dialog — two
+			// blind Enters later the process was dead. `dialog` below is
+			// what actually guards against that now; this regex tightens
+			// the innocent-until-proven-idle side of the same bug.
+			idle:       regexp.MustCompile(`(?m)^\s*›\s*Ask Codex to do anything`),
+			processing: regexp.MustCompile(`(?i)esc to interrupt|thinking|working|\.\.\.|generating`),
+			completed:  regexp.MustCompile(`(?i)done|completed|finished|tokens used`),
+			// First-run trust prompt ("Do you trust the contents of this
+			// directory?", options "1. Yes, continue" / "2. No, quit")
+			// and the transitional "model:     loading" boot screen — the
+			// composer placeholder is already visible on THAT screen too,
+			// so without this it also read as idle a beat before Codex
+			// had actually finished booting.
+			dialog: regexp.MustCompile(`(?i)do you trust the contents of this directory|model:\s*loading|press enter to continue`),
 		}
 	case ProviderOpenCode:
 		return statusPatterns{
