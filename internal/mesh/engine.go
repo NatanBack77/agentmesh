@@ -73,6 +73,14 @@ type Engine struct {
 	bootMu    sync.Mutex
 	bootHints map[string]string // terminalID -> first-message to deliver once past boot
 
+	costsMu    sync.Mutex
+	costsCache *dashboardCosts
+	costsAt    time.Time
+
+	quotaMu    sync.Mutex
+	quotaCache *dashboardQuotas
+	quotaAt    time.Time
+
 	httpSrv *http.Server
 	addr    string
 	port    int

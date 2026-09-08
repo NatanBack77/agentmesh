@@ -9,6 +9,52 @@ import (
 	"time"
 )
 
+// CachedQuota wraps FetchQuota with a 120s file cache, shared by every
+// agentmesh session (CLI status bar and the dashboard alike) — the endpoint
+// it calls (api.anthropic.com/api/oauth/usage) is documented to rate-limit
+// hard under frequent polling (see anthropics/claude-code#31021), and every
+// claude session spawned re-runs this on its own status-refresh interval,
+// so without a shared cache N sessions would mean N requests every tick
+// instead of one every two minutes total.
+//
+// On a failed fetch (offline, rate limited, token expired) this falls back
+// to whatever's on disk even if stale, and re-stamps that file's mtime — so
+// a persistent outage backs off to one retry per window instead of
+// hammering the endpoint every single tick.
+func CachedQuota() (Quota, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return Quota{}, err
+	}
+	cachePath := filepath.Join(home, ".agentmesh", "quota-cache.json")
+
+	if fi, err := os.Stat(cachePath); err == nil && time.Since(fi.ModTime()) < 120*time.Second {
+		if b, err := os.ReadFile(cachePath); err == nil {
+			var q Quota
+			if json.Unmarshal(b, &q) == nil {
+				return q, nil
+			}
+		}
+	}
+
+	q, ferr := FetchQuota()
+	if ferr != nil {
+		if b, err := os.ReadFile(cachePath); err == nil {
+			_ = os.WriteFile(cachePath, b, 0o644) // rewrite bumps mtime = backoff
+			var stale Quota
+			if json.Unmarshal(b, &stale) == nil {
+				return stale, nil
+			}
+		}
+		return Quota{}, ferr
+	}
+	if b, err := json.Marshal(q); err == nil {
+		_ = os.MkdirAll(filepath.Join(home, ".agentmesh"), 0o755)
+		_ = os.WriteFile(cachePath, b, 0o644)
+	}
+	return q, nil
+}
+
 // Quota is Anthropic's own view of how much of your plan's rate-limit
 // windows you've used — the SAME numbers claude.ai's Configurações → Uso
 // page shows (session %, weekly %, reset times). This is a completely

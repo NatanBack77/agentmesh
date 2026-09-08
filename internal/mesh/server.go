@@ -14,6 +14,10 @@ import (
 // registerRoutes wires the HTTP API. Every route is loopback-only by virtue
 // of the listener binding to 127.0.0.1 in Start.
 func (e *Engine) registerRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /dashboard", e.handleDashboard)
+	mux.HandleFunc("GET /dashboard/data", e.handleDashboardData)
+	mux.HandleFunc("GET /dashboard/events", e.handleDashboardEvents)
+
 	mux.HandleFunc("POST /spawn", e.handleSpawn)
 	mux.HandleFunc("GET /agents", e.handleListAgents)
 	mux.HandleFunc("GET /agents/{id}", e.handleGetAgent)

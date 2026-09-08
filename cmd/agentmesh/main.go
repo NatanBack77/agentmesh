@@ -80,6 +80,8 @@ func main() {
 		err = cmdExec(args)
 	case "whoami":
 		err = cmdWhoami(args)
+	case "dashboard":
+		err = cmdDashboard(args)
 	case "kill":
 		err = cmdKill(args)
 	case "attach":
@@ -118,6 +120,7 @@ func usage() {
   agentmesh handoff NOME "tarefa" [--timeout S]  delega e espera o resultado
   agentmesh exec SHELL "comando"                 roda comando num agente shell e lê a saída
   agentmesh whoami                               identidade do agente atual (usa $AGENTMESH_TERMINAL_ID)
+  agentmesh dashboard                            imprime a URL do painel web local
   agentmesh kill NOME [--remove-worktree] [--delete-branch] [--force]
                                                   mata um agente (por padrão deixa worktree/branch intactos)
   agentmesh attach NOME                          entra no terminal de verdade (tmux attach; Ctrl+B D desanexa)
@@ -429,6 +432,11 @@ func cmdWhoami(args []string) error {
 		return err
 	}
 	fmt.Printf("nome: %s\nid: %s\nprovider: %s\nstatus: %s\ncwd: %s\n", v.Name, v.TerminalID, v.Provider, v.Status, v.CWD)
+	return nil
+}
+
+func cmdDashboard(args []string) error {
+	fmt.Println(baseURL() + "/dashboard")
 	return nil
 }
 
@@ -792,7 +800,7 @@ func cmdUsage(args []string) error {
 		// estimate below when quota isn't available at all (API-key auth,
 		// offline, endpoint rate-limited): a $ number is still better than
 		// a blank footer for that case.
-		if q, err := quotaCached(); err == nil {
+		if q, err := usagepkg.CachedQuota(); err == nil {
 			fmt.Printf("#[bg=default]⏱ sessão %s %s  ·  📆 semana %s %s",
 				tmuxBar(q.SessionPct, 10), fmtCountdown(time.Until(q.SessionResetsAt)),
 				tmuxBar(q.WeekPct, 10), fmtWeekday(q.WeekResetsAt),
@@ -1133,52 +1141,6 @@ func usageCached(days int) (usagepkg.Report, error) {
 		_ = os.WriteFile(cachePath, b, 0o644)
 	}
 	return rep, nil
-}
-
-// quotaCached wraps usagepkg.FetchQuota with a 120s file cache, shared by
-// every agentmesh session's status bar — the endpoint it calls
-// (api.anthropic.com/api/oauth/usage) is documented to rate-limit hard
-// under frequent polling (see anthropics/claude-code#31021), and every
-// claude session spawned re-runs `agentmesh usage --oneline` on its own
-// 20s tmux status-interval, so without a shared cache N sessions would
-// mean N requests every 20s instead of one every two minutes total.
-//
-// On a failed fetch (offline, rate limited, token expired) this falls
-// back to whatever's on disk even if stale, and re-stamps that file's
-// mtime — so a persistent outage backs off to one retry per window
-// instead of hammering the endpoint every single tick.
-func quotaCached() (usagepkg.Quota, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return usagepkg.Quota{}, err
-	}
-	cachePath := home + "/.agentmesh/quota-cache.json"
-
-	if fi, err := os.Stat(cachePath); err == nil && time.Since(fi.ModTime()) < 120*time.Second {
-		if b, err := os.ReadFile(cachePath); err == nil {
-			var q usagepkg.Quota
-			if json.Unmarshal(b, &q) == nil {
-				return q, nil
-			}
-		}
-	}
-
-	q, ferr := usagepkg.FetchQuota()
-	if ferr != nil {
-		if b, err := os.ReadFile(cachePath); err == nil {
-			_ = os.WriteFile(cachePath, b, 0o644) // rewrite bumps mtime = backoff
-			var stale usagepkg.Quota
-			if json.Unmarshal(b, &stale) == nil {
-				return stale, nil
-			}
-		}
-		return usagepkg.Quota{}, ferr
-	}
-	if b, err := json.Marshal(q); err == nil {
-		_ = os.MkdirAll(home+"/.agentmesh", 0o755)
-		_ = os.WriteFile(cachePath, b, 0o644)
-	}
-	return q, nil
 }
 
 func envFloat(name string, def float64) float64 {

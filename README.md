@@ -118,9 +118,33 @@ agentmesh handoff coder "implementa X" --timeout 300        # bloqueia e traz o 
 agentmesh exec meushell "npm test"                           # só em agentes shell
 
 agentmesh whoami                # identidade do agente atual
+agentmesh dashboard             # mostra a URL do painel web local
 agentmesh watch reviewer        # acompanha, somente leitura (tmux attach -r)
 agentmesh kill reviewer
 ```
+
+## Dashboard local
+
+Com o motor rodando (ou depois de qualquer comando que o suba em
+background), rode:
+
+```bash
+agentmesh dashboard
+```
+
+Ele imprime a URL `http://127.0.0.1:8990/dashboard`. O painel recebe
+atualizações em tempo real por SSE (`/dashboard/events`) e tem 4 abas:
+
+- **Visão geral** — saúde do mesh, lista de agentes e o mapa de
+  delegação (grafo real, não lista plana — a posição de cada nó vem da
+  árvore parent_id/chain_depth).
+- **Agentes** — a mesma lista, com busca e filtro por status.
+- **Coordenação** — a topologia de delegação em tamanho grande, mais os
+  sinais/primitivas do mesh.
+- **Custos** — quota real do plano (barras de sessão/semana, os
+  MESMOS números de claude.ai → Configurações → Uso e do `/status` do
+  Codex) e custo em `$` por provider/modelo nas últimas 24h/7 dias,
+  detalhado logo abaixo em "Quanto eu tô gastando?".
 
 Dois agentes podem apontar pro **mesmo** diretório sem problema (é só
 repetir o `--cwd`, ou rodar os dois `spawn` da mesma pasta).
@@ -213,19 +237,25 @@ providers ainda não têm esse padrão mapeado.)
 
 ## Quanto eu tô gastando?
 
-Duas formas de ver, pro mesmo dado — uma pra olhar quando quiser, outra
-que fica sempre visível sem você pedir nada.
+Três formas de ver, e duas métricas genuinamente diferentes por trás
+delas — vale entender a diferença antes de confiar em qualquer uma:
 
-**Importante pra quem tá no plano Pro/Max (assinatura, não API avulsa):**
-o `$` aqui é **custo equivalente** — quanto esse mesmo uso custaria se
-fosse cobrado por token no preço de lista da API (`~$`, com til de
-propósito). Isso **não é** o limite/quota real da sua assinatura, que é
-medido em % de sessão/semana, não em dólar — essa % real só existe em
-claude.ai → Configurações → Uso, o agentmesh não tem acesso a ela (é
-conta da Anthropic, não tem endpoint local pra isso). Se você tá numa
-assinatura, é normal o `~$` aqui parecer bem maior que o que você paga
-de fato — é exatamente a diferença entre pagar por token e pagar um
-plano fechado. Sirva pra comparar dia com dia, não pra prever a fatura.
+- **quota real da assinatura** — % de sessão(5h)/semana já usada, os
+  MESMOS números da tela de conta do provider. Só existe pra quem
+  logou via OAuth (Pro/Max no Claude, ChatGPT no Codex); API key pura
+  não tem quota de assinatura pra reportar. É a métrica que aparece na
+  barrinha do rodapé e na aba **Custos** do dashboard.
+- **custo equivalente em `$`** — quanto o uso registrado localmente
+  custaria se fosse cobrado por token no preço de lista da API (por
+  isso `~$`, com til de propósito). Não é o que você paga de fato numa
+  assinatura fechada — é só uma régua pra comparar dia com dia. É a
+  métrica do `agentmesh usage` (recibo no terminal) e da tabela de
+  custo por modelo na aba **Custos** do dashboard.
+
+Os dois números não precisam bater, e normalmente não batem: numa
+assinatura, o `~$` costuma parecer bem maior que o que você paga de
+fato — é exatamente a diferença entre pagar por token e pagar um
+plano fechado.
 
 **`agentmesh usage`** dá o extrato completo, formatado como um recibo:
 
@@ -317,11 +347,19 @@ export AGENTMESH_WEEKLY_BUDGET=500
 Fica em cache por 60s, então nem o extrato nem a barra do rodapé travam
 esperando.)
 
-**codex/gemini/opencode ainda não têm isso** — cada um grava uso num
-formato de log diferente e nenhum estava instalado nesta máquina pra eu
-testar contra dado real antes de shipar (regra do projeto: nada entra sem
-ter sido verificado contra o CLI de verdade). Fica como próximo passo
-quando alguém tiver um desses configurado.
+**codex também tem quota real agora** — sem nem precisar de rede: o
+Codex CLI já grava, em todo turno, dentro do próprio rollout
+(`~/.codex/sessions/**/*.jsonl`), o mesmo par sessão(5h)/semana que ele
+usa pra montar o `/status` (`primary`/`secondary`, com `resets_at` e
+`plan_type`) — o agentmesh só lê a última entrada da sessão mais
+recente. Testado ao vivo contra uma conta Plus antes de shipar.
+
+**gemini/opencode ainda não têm quota** — o Gemini CLI não grava
+histórico de sessão/uso localmente nesta máquina (nem estava instalado
+pra eu confirmar se grava em algum outro lugar), e o opencode não expõe
+um conceito de "% da janela de rate limit" — ele já calcula um custo em
+`$` por mensagem (visível na tabela do dashboard), mas isso é preço de
+lista, não quota de assinatura.
 
 ## Custo de recursos
 
