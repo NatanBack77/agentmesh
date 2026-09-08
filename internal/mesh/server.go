@@ -17,6 +17,7 @@ func (e *Engine) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dashboard", e.handleDashboard)
 	mux.HandleFunc("GET /dashboard/data", e.handleDashboardData)
 	mux.HandleFunc("GET /dashboard/events", e.handleDashboardEvents)
+	mux.HandleFunc("GET /fs/browse", e.handleFSBrowse)
 
 	mux.HandleFunc("POST /spawn", e.handleSpawn)
 	mux.HandleFunc("GET /agents", e.handleListAgents)

@@ -143,8 +143,23 @@ atualizações em tempo real por SSE (`/dashboard/events`) e tem 4 abas:
   sinais/primitivas do mesh.
 - **Custos** — quota real do plano (barras de sessão/semana, os
   MESMOS números de claude.ai → Configurações → Uso e do `/status` do
-  Codex) e custo em `$` por provider/modelo nas últimas 24h/7 dias,
-  detalhado logo abaixo em "Quanto eu tô gastando?".
+  Codex), custo em `$` por provider/modelo nas últimas 24h/7 dias, e
+  custo por diretório de trabalho (a aproximação mais precisa de "custo
+  por tarefa" que dá pra medir sem cada CLI ter uma tag de tarefa
+  explícita — cada um já grava o `--cwd` exato de cada turno).
+  Detalhado logo abaixo em "Quanto eu tô gastando?".
+
+O botão **+ Novo agente** do dashboard tem um seletor de pasta pro
+`--cwd`: autocomplete com diretórios já conhecidos (agentes ativos,
+allowlist, projetos com uso recente de IA) e um botão 📁 que abre um
+navegador de pastas dentro do próprio painel — clica pra entrar/subir de
+diretório e confirma, sem digitar o caminho na mão. Não é o explorador
+nativo do SO (nenhuma página web recebe o caminho real de um
+`showDirectoryPicker()` do navegador — é sandboxing de privacidade
+deliberado); é uma lista de diretórios servida por `GET /fs/browse`, que
+roda como o mesmo usuário local que já tem acesso ao disco todo — mesmo
+resultado prático (navegar e escolher em vez de digitar), sem depender
+do navegador expor algo que ele nunca expõe.
 
 Dois agentes podem apontar pro **mesmo** diretório sem problema (é só
 repetir o `--cwd`, ou rodar os dois `spawn` da mesma pasta).

@@ -102,6 +102,7 @@ type modelUsage struct {
 }
 
 type costKey struct{ Provider, Model string }
+type projectKey struct{ Provider, Project string }
 
 type dashboardCostRow struct {
 	Provider         string  `json:"provider"`
@@ -113,14 +114,28 @@ type dashboardCostRow struct {
 	CostUSD          float64 `json:"cost_usd"`
 }
 
+// dashboardCostProjectRow is the same cost data grouped by working
+// directory instead of model — the closest proxy these CLIs let us measure
+// for "cost per task": each one already tags its own transcript lines with
+// the exact --cwd a turn ran in (Claude's "cwd" field, Codex's
+// turn_context.cwd, opencode's message.path.cwd), no path decoding needed.
+type dashboardCostProjectRow struct {
+	Provider string  `json:"provider"`
+	Project  string  `json:"project"`
+	CostUSD  float64 `json:"cost_usd"`
+}
+
 type dashboardCosts struct {
-	GeneratedAt    time.Time          `json:"generated_at"`
-	Day24hUSD      float64            `json:"day_24h_usd"`
-	Week7dUSD      float64            `json:"week_7d_usd"`
-	Day24hRows     []dashboardCostRow `json:"day_24h_rows"`
-	Week7dRows     []dashboardCostRow `json:"week_7d_rows"`
-	UnpricedModels []string           `json:"unpriced_models,omitempty"`
-	NoLocalData    []string           `json:"no_local_data,omitempty"`
+	GeneratedAt    time.Time                 `json:"generated_at"`
+	Day24hUSD      float64                   `json:"day_24h_usd"`
+	Week7dUSD      float64                   `json:"week_7d_usd"`
+	Day24hRows     []dashboardCostRow        `json:"day_24h_rows"`
+	Week7dRows     []dashboardCostRow        `json:"week_7d_rows"`
+	Day24hProjects []dashboardCostProjectRow `json:"day_24h_projects"`
+	Week7dProjects []dashboardCostProjectRow `json:"week_7d_projects"`
+	UnpricedModels []string                  `json:"unpriced_models,omitempty"`
+	NoLocalData    []string                  `json:"no_local_data,omitempty"`
+	KnownDirs      []string                  `json:"known_dirs,omitempty"`
 }
 
 // costsSnapshot returns the cached cost report, recomputing it from disk at
@@ -144,10 +159,30 @@ func computeCosts(now time.Time) dashboardCosts {
 
 	day := map[costKey]*modelUsage{}
 	week := map[costKey]*modelUsage{}
+	dayProj := map[projectKey]float64{}
+	weekProj := map[projectKey]float64{}
+	knownDirs := map[string]bool{}
 	var unpriced []string
 	seenUnpriced := map[string]bool{}
 
-	record := func(provider, model string, ts time.Time, in, out, cacheRead, cacheWrite int64, pricing map[string]tokenPricing) {
+	addUsage := func(m map[costKey]*modelUsage, provider, model string, in, out, cacheRead, cacheWrite int64, cost float64) {
+		k := costKey{provider, model}
+		u := m[k]
+		if u == nil {
+			u = &modelUsage{}
+			m[k] = u
+		}
+		u.InputTokens += in
+		u.OutputTokens += out
+		u.CacheReadTokens += cacheRead
+		u.CacheWriteTokens += cacheWrite
+		u.CostUSD += cost
+	}
+
+	// record handles providers priced from a shared table (cost derived
+	// here); recordCost handles providers that already carry a computed
+	// cost (Claude/opencode). Both feed the same day/week/project maps.
+	record := func(provider, model, project string, ts time.Time, in, out, cacheRead, cacheWrite int64, pricing map[string]tokenPricing) {
 		if ts.Before(weekCutoff) {
 			return
 		}
@@ -159,51 +194,39 @@ func computeCosts(now time.Time) dashboardCosts {
 			seenUnpriced[model] = true
 			unpriced = append(unpriced, model)
 		}
-		add := func(m map[costKey]*modelUsage) {
-			k := costKey{provider, model}
-			u := m[k]
-			if u == nil {
-				u = &modelUsage{}
-				m[k] = u
+		if project != "" {
+			knownDirs[project] = true
+			weekProj[projectKey{provider, project}] += cost
+			if !ts.Before(dayCutoff) {
+				dayProj[projectKey{provider, project}] += cost
 			}
-			u.InputTokens += in
-			u.OutputTokens += out
-			u.CacheReadTokens += cacheRead
-			u.CacheWriteTokens += cacheWrite
-			u.CostUSD += cost
 		}
-		add(week)
+		addUsage(week, provider, model, in, out, cacheRead, cacheWrite, cost)
 		if !ts.Before(dayCutoff) {
-			add(day)
+			addUsage(day, provider, model, in, out, cacheRead, cacheWrite, cost)
 		}
 	}
-	recordCost := func(provider, model string, ts time.Time, in, out, cacheRead, cacheWrite int64, cost float64) {
+	recordCost := func(provider, model, project string, ts time.Time, in, out, cacheRead, cacheWrite int64, cost float64) {
 		if ts.Before(weekCutoff) {
 			return
 		}
-		add := func(m map[costKey]*modelUsage) {
-			k := costKey{provider, model}
-			u := m[k]
-			if u == nil {
-				u = &modelUsage{}
-				m[k] = u
+		if project != "" {
+			knownDirs[project] = true
+			weekProj[projectKey{provider, project}] += cost
+			if !ts.Before(dayCutoff) {
+				dayProj[projectKey{provider, project}] += cost
 			}
-			u.InputTokens += in
-			u.OutputTokens += out
-			u.CacheReadTokens += cacheRead
-			u.CacheWriteTokens += cacheWrite
-			u.CostUSD += cost
 		}
-		add(week)
+		addUsage(week, provider, model, in, out, cacheRead, cacheWrite, cost)
 		if !ts.Before(dayCutoff) {
-			add(day)
+			addUsage(day, provider, model, in, out, cacheRead, cacheWrite, cost)
 		}
 	}
 
 	home, err := os.UserHomeDir()
 	noLocalData := []string{"gemini"}
 	if err == nil {
-		scanClaudeUsage(home, weekCutoff, func(model string, ts time.Time, in, out, cacheRead5m, cacheRead1h, cacheReadTok int64) {
+		scanClaudeUsage(home, weekCutoff, func(model, project string, ts time.Time, in, out, cacheRead5m, cacheRead1h, cacheReadTok int64) {
 			p, ok := claudePricing[model]
 			var cost float64
 			if ok {
@@ -213,15 +236,21 @@ func computeCosts(now time.Time) dashboardCosts {
 				seenUnpriced[model] = true
 				unpriced = append(unpriced, model)
 			}
-			recordCost("claude", model, ts, in, out, cacheReadTok, cacheRead5m+cacheRead1h, cost)
+			recordCost("claude", model, project, ts, in, out, cacheReadTok, cacheRead5m+cacheRead1h, cost)
 		})
-		scanCodexUsage(home, weekCutoff, func(model string, ts time.Time, in, cachedIn, out int64) {
+		scanCodexUsage(home, weekCutoff, func(model, project string, ts time.Time, in, cachedIn, out int64) {
 			nonCached := max(in-cachedIn, 0)
-			record("codex", model, ts, nonCached, out, cachedIn, 0, openAIPricing)
+			record("codex", model, project, ts, nonCached, out, cachedIn, 0, openAIPricing)
 		})
-		scanOpenCodeUsage(home, weekCutoff, func(model string, ts time.Time, in, out, cacheRead, cacheWrite int64, cost float64) {
-			recordCost("opencode", model, ts, in, out, cacheRead, cacheWrite, cost)
+		scanOpenCodeUsage(home, weekCutoff, func(model, project string, ts time.Time, in, out, cacheRead, cacheWrite int64, cost float64) {
+			recordCost("opencode", model, project, ts, in, out, cacheRead, cacheWrite, cost)
 		})
+	}
+
+	if dirs, configured, err := loadAllowlist(); err == nil && configured {
+		for _, d := range dirs {
+			knownDirs[d] = true
+		}
 	}
 
 	sort.Strings(unpriced)
@@ -241,9 +270,23 @@ func computeCosts(now time.Time) dashboardCosts {
 		sort.Slice(rows, func(i, j int) bool { return rows[i].CostUSD > rows[j].CostUSD })
 		return rows, total
 	}
+	toProjectRows := func(m map[projectKey]float64) []dashboardCostProjectRow {
+		rows := make([]dashboardCostProjectRow, 0, len(m))
+		for k, cost := range m {
+			rows = append(rows, dashboardCostProjectRow{Provider: k.Provider, Project: k.Project, CostUSD: cost})
+		}
+		sort.Slice(rows, func(i, j int) bool { return rows[i].CostUSD > rows[j].CostUSD })
+		return rows
+	}
 
 	dayRows, dayTotal := toRows(day)
 	weekRows, weekTotal := toRows(week)
+
+	dirs := make([]string, 0, len(knownDirs))
+	for d := range knownDirs {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
 
 	return dashboardCosts{
 		GeneratedAt:    now,
@@ -251,14 +294,18 @@ func computeCosts(now time.Time) dashboardCosts {
 		Week7dUSD:      weekTotal,
 		Day24hRows:     dayRows,
 		Week7dRows:     weekRows,
+		Day24hProjects: toProjectRows(dayProj),
+		Week7dProjects: toProjectRows(weekProj),
 		UnpricedModels: unpriced,
 		NoLocalData:    noLocalData,
+		KnownDirs:      dirs,
 	}
 }
 
 type claudeUsageLine struct {
 	Type      string `json:"type"`
 	Timestamp string `json:"timestamp"`
+	Cwd       string `json:"cwd"`
 	Message   struct {
 		Model string `json:"model"`
 		Usage struct {
@@ -278,7 +325,7 @@ type claudeUsageLine struct {
 // each assistant turn's token usage split into 5m-cache-write,
 // 1h-cache-write, and cache-read buckets (Anthropic prices each
 // differently).
-func scanClaudeUsage(home string, since time.Time, emit func(model string, ts time.Time, in, out, cacheWrite5m, cacheWrite1h, cacheRead int64)) {
+func scanClaudeUsage(home string, since time.Time, emit func(model, project string, ts time.Time, in, out, cacheWrite5m, cacheWrite1h, cacheRead int64)) {
 	root := filepath.Join(home, ".claude", "projects")
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || filepath.Ext(path) != ".jsonl" {
@@ -313,7 +360,7 @@ func scanClaudeUsage(home string, since time.Time, emit func(model string, ts ti
 			if w5 == 0 && w1 == 0 && u.CacheCreationInputTokens > 0 {
 				w5 = u.CacheCreationInputTokens // older transcripts omit the split; default TTL is 5m
 			}
-			emit(rec.Message.Model, ts, u.InputTokens, u.OutputTokens, w5, w1, u.CacheReadInputTokens)
+			emit(rec.Message.Model, rec.Cwd, ts, u.InputTokens, u.OutputTokens, w5, w1, u.CacheReadInputTokens)
 		}
 		return nil
 	})
@@ -330,6 +377,7 @@ type codexRolloutLine struct {
 	Payload   struct {
 		Type  string `json:"type"`
 		Model string `json:"model"`
+		Cwd   string `json:"cwd"`
 		Info  struct {
 			LastTokenUsage struct {
 				InputTokens       int64 `json:"input_tokens"`
@@ -343,7 +391,7 @@ type codexRolloutLine struct {
 // scanCodexUsage walks every Codex rollout file, tracking the active model
 // via turn_context events and summing the per-turn usage deltas reported by
 // token_count events.
-func scanCodexUsage(home string, since time.Time, emit func(model string, ts time.Time, in, cachedIn, out int64)) {
+func scanCodexUsage(home string, since time.Time, emit func(model, project string, ts time.Time, in, cachedIn, out int64)) {
 	root := filepath.Join(home, ".codex", "sessions")
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || filepath.Ext(path) != ".jsonl" {
@@ -360,7 +408,7 @@ func scanCodexUsage(home string, since time.Time, emit func(model string, ts tim
 		defer f.Close()
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-		model := ""
+		model, project := "", ""
 		for sc.Scan() {
 			line := sc.Bytes()
 			if len(line) == 0 {
@@ -375,6 +423,9 @@ func scanCodexUsage(home string, since time.Time, emit func(model string, ts tim
 				if rec.Payload.Model != "" {
 					model = rec.Payload.Model
 				}
+				if rec.Payload.Cwd != "" {
+					project = rec.Payload.Cwd
+				}
 			case rec.Type == "event_msg" && rec.Payload.Type == "token_count":
 				ts, err := time.Parse(time.RFC3339Nano, rec.Timestamp)
 				if err != nil || ts.Before(since) {
@@ -384,7 +435,7 @@ func scanCodexUsage(home string, since time.Time, emit func(model string, ts tim
 				if u.InputTokens == 0 && u.OutputTokens == 0 {
 					continue
 				}
-				emit(model, ts, u.InputTokens, u.CachedInputTokens, u.OutputTokens)
+				emit(model, project, ts, u.InputTokens, u.CachedInputTokens, u.OutputTokens)
 			}
 		}
 		return nil
@@ -392,8 +443,11 @@ func scanCodexUsage(home string, since time.Time, emit func(model string, ts tim
 }
 
 type opencodeMessageData struct {
-	Role   string `json:"role"`
-	Cost   float64 `json:"cost"`
+	Role string  `json:"role"`
+	Cost float64 `json:"cost"`
+	Path struct {
+		Cwd string `json:"cwd"`
+	} `json:"path"`
 	Tokens struct {
 		Input     int64 `json:"input"`
 		Output    int64 `json:"output"`
@@ -414,7 +468,7 @@ type opencodeMessageData struct {
 // (best-effort: silently returns nothing if the db or the CLI is missing)
 // and trusts the "cost" field opencode already computed per message, rather
 // than re-deriving it from a separate pricing table.
-func scanOpenCodeUsage(home string, since time.Time, emit func(model string, ts time.Time, in, out, cacheRead, cacheWrite int64, costUSD float64)) {
+func scanOpenCodeUsage(home string, since time.Time, emit func(model, project string, ts time.Time, in, out, cacheRead, cacheWrite int64, costUSD float64)) {
 	db := filepath.Join(home, ".local", "share", "opencode", "opencode.db")
 	if _, err := os.Stat(db); err != nil {
 		return
@@ -449,6 +503,6 @@ func scanOpenCodeUsage(home string, since time.Time, emit func(model string, ts 
 		if provider != "" {
 			model = provider + "/" + model
 		}
-		emit(model, ts, d.Tokens.Input, d.Tokens.Output+d.Tokens.Reasoning, d.Tokens.Cache.Read, d.Tokens.Cache.Write, d.Cost)
+		emit(model, d.Path.Cwd, ts, d.Tokens.Input, d.Tokens.Output+d.Tokens.Reasoning, d.Tokens.Cache.Read, d.Tokens.Cache.Write, d.Cost)
 	}
 }

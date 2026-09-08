@@ -304,6 +304,10 @@ const dashboardHTML = `<!doctype html>
       font-variant-numeric: tabular-nums;
     }
     button, input, select { font: inherit; color: inherit; }
+    /* Chromium computes a <select>'s native popup list against the
+       element's OWN color-scheme, not just the root's — without this the
+       closed control looks themed but every dropdown opens white-on-white. */
+    select { color-scheme: dark; }
     a { color: var(--accent); text-decoration: none; }
     a:hover, a:focus-visible { text-decoration: underline; }
     :focus-visible {
@@ -779,7 +783,7 @@ const dashboardHTML = `<!doctype html>
     .event-row time { color: var(--faint); }
     .event-row strong { color: var(--text); font-weight: 600; }
 
-    dialog#spawn-dialog {
+    dialog#spawn-dialog, dialog#dirpicker-dialog {
       border: 1px solid var(--line-strong);
       background: #12160f;
       color: var(--text);
@@ -787,7 +791,7 @@ const dashboardHTML = `<!doctype html>
       padding: 0;
       width: min(440px, calc(100vw - 40px));
     }
-    dialog#spawn-dialog::backdrop { background: rgba(4,5,4,.72); }
+    dialog#spawn-dialog::backdrop, dialog#dirpicker-dialog::backdrop { background: rgba(4,5,4,.72); }
     .dialog-inner { padding: 18px; }
     .dialog-inner h2 { margin: 0 0 4px; font-size: 15px; }
     .dialog-inner p.hint { margin: 0 0 16px; color: var(--faint); font-size: 12px; }
@@ -802,6 +806,36 @@ const dashboardHTML = `<!doctype html>
       height: 36px;
       padding: 0 10px;
     }
+    .field-hint { margin: 6px 0 0; color: var(--faint); font-size: 11px; line-height: 1.4; }
+    .field-hint code { color: var(--muted); }
+    .cwd-row { display: flex; gap: 8px; }
+    .cwd-row input { flex: 1; min-width: 0; }
+    .cwd-row .iconbtn { flex: none; height: 36px; }
+    .dirpicker-list {
+      max-height: 280px;
+      overflow-y: auto;
+      display: grid;
+      gap: 2px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 6px;
+      margin-bottom: 4px;
+      background: var(--ink);
+    }
+    .dirrow {
+      all: unset;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 12.5px;
+      min-height: 36px;
+    }
+    .dirrow:hover, .dirrow:focus-visible { background: rgba(200,224,106,.08); }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
     .form-error { color: var(--red); font-size: 12px; margin-top: 8px; min-height: 1em; }
 
@@ -947,6 +981,15 @@ const dashboardHTML = `<!doctype html>
         <div id="cost-body"></div>
         <p class="note" id="cost-caveat" style="margin-top:10px"></p>
       </section>
+
+      <section class="panel" style="margin-top:12px" aria-labelledby="costs-project-heading">
+        <header>
+          <h2 id="costs-project-heading">Custo por diretório (tarefa/projeto)</h2>
+          <span class="hint">últimos 7 dias · agrupado pelo --cwd de cada turno</span>
+        </header>
+        <div id="cost-project-body"></div>
+        <p class="note" style="margin-top:10px">Aproximação de "custo por tarefa": cada CLI grava o diretório de trabalho exato em que cada turno rodou, e cada diretório costuma ser uma tarefa/projeto — não uma tag de tarefa explícita.</p>
+      </section>
     </section>
   </div>
 
@@ -970,7 +1013,12 @@ const dashboardHTML = `<!doctype html>
       </div>
       <div class="field">
         <label for="spawn-cwd">Diretório de trabalho</label>
-        <input id="spawn-cwd" name="cwd" placeholder="padrão: diretório do motor" autocomplete="off">
+        <div class="cwd-row">
+          <input id="spawn-cwd" name="cwd" list="known-dirs" placeholder="padrão: diretório do motor" autocomplete="off">
+          <datalist id="known-dirs"></datalist>
+          <button type="button" class="btn iconbtn" id="browse-cwd" title="Escolher pasta" aria-label="Escolher pasta"><span aria-hidden="true">📁</span></button>
+        </div>
+        <p class="field-hint">Digite (com sugestões) ou clique na pasta pra navegar pelo disco a partir da sua conta.</p>
       </div>
       <p class="form-error" id="spawn-error" role="alert"></p>
       <div class="dialog-actions">
@@ -978,6 +1026,19 @@ const dashboardHTML = `<!doctype html>
         <button type="submit" class="btn primary" id="spawn-submit">Spawnar</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="dirpicker-dialog">
+    <div class="dialog-inner">
+      <h2>Escolher pasta</h2>
+      <p class="hint" id="dirpicker-path" style="word-break: break-all;"></p>
+      <p class="form-error" id="dirpicker-error" role="alert"></p>
+      <div class="dirpicker-list" id="dirpicker-list" role="listbox" aria-label="Subpastas"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" id="dirpicker-cancel">Cancelar</button>
+        <button type="button" class="btn primary" id="dirpicker-use">Usar esta pasta</button>
+      </div>
+    </div>
   </dialog>
 
   <script>
@@ -1090,6 +1151,7 @@ const dashboardHTML = `<!doctype html>
       renderSignals(data.signals);
       renderCosts(data.costs);
       renderQuota(data.quotas);
+      renderKnownDirs(data.agents, data.costs);
       renderActivity();
     }
 
@@ -1398,6 +1460,33 @@ const dashboardHTML = `<!doctype html>
       }
       notes.push("calculado a partir dos registros locais de cada CLI (~/.claude/projects, ~/.codex/sessions, opencode.db) — todo uso na máquina, não só deste mesh.");
       $("cost-caveat").textContent = notes.join(" · ");
+
+      renderProjectCosts(costs.week_7d_projects || []);
+    }
+
+    function renderProjectCosts(rows) {
+      const el = $("cost-project-body");
+      if (!rows.length) {
+        el.innerHTML = '<div class="empty">Nenhum diretório com uso local registrado nos últimos 7 dias.</div>';
+        return;
+      }
+      el.innerHTML =
+        '<table class="agents"><caption class="sr-only">Custo por diretório de trabalho, últimos 7 dias</caption><thead><tr>' +
+          '<th scope="col">Diretório</th><th scope="col">Provider</th><th scope="col">Custo (7d)</th>' +
+        '</tr></thead><tbody>' +
+        rows.map((r) =>
+          '<tr><td><span class="agentpath" style="max-width:52ch">' + safe(r.project) + '</span></td>' +
+          '<td class="muted-cell">' + safe(r.provider) + '</td>' +
+          '<td><strong>' + fmtUSD(r.cost_usd) + '</strong></td></tr>').join("") +
+        '</tbody></table>';
+    }
+
+    function renderKnownDirs(agents, costs) {
+      const dirs = new Set();
+      (agents || []).forEach((a) => { if (a.cwd) dirs.add(a.cwd); });
+      (costs && costs.known_dirs || []).forEach((d) => dirs.add(d));
+      const list = Array.from(dirs).sort();
+      $("known-dirs").innerHTML = list.map((d) => '<option value="' + safe(d) + '"></option>').join("");
     }
 
     function recordSnapshot(data, mode) {
@@ -1458,6 +1547,50 @@ const dashboardHTML = `<!doctype html>
       } finally {
         submit.disabled = false;
       }
+    });
+
+    /* ---- folder picker ------------------------------------------------------ */
+    // A web page can never learn the real OS path behind a native folder
+    // picker (browsers hide it deliberately). This dashboard only ever
+    // talks to 127.0.0.1 though, so /fs/browse — running as the same local
+    // user — gets the same practical result: click through real folders,
+    // land on a real absolute path, no typing.
+    const dirPickerDialog = $("dirpicker-dialog");
+    let dirPickerPath = "";
+
+    async function loadDirPicker(path) {
+      $("dirpicker-error").textContent = "";
+      const url = "/fs/browse" + (path ? ("?path=" + encodeURIComponent(path)) : "");
+      const res = await fetch(url);
+      const data = await res.json();
+      dirPickerPath = data.path || "";
+      $("dirpicker-path").textContent = dirPickerPath;
+      if (data.error) {
+        $("dirpicker-error").textContent = data.error;
+      }
+      const rows = [];
+      if (data.parent) {
+        rows.push('<button type="button" class="dirrow" role="option" data-path="' + safe(data.parent) + '"><span aria-hidden="true">⬆</span> .. (subir)</button>');
+      }
+      (data.entries || []).forEach((en) => {
+        rows.push('<button type="button" class="dirrow" role="option" data-path="' + safe(en.path) + '"><span aria-hidden="true">📁</span> ' + safe(en.name) + '</button>');
+      });
+      $("dirpicker-list").innerHTML = rows.length ? rows.join("") : '<p class="note" style="padding:8px">Sem subpastas aqui.</p>';
+      $("dirpicker-list").querySelectorAll(".dirrow").forEach((btn) => {
+        btn.addEventListener("click", () => loadDirPicker(btn.dataset.path));
+      });
+    }
+
+    $("browse-cwd").addEventListener("click", () => {
+      loadDirPicker($("spawn-cwd").value.trim()).catch((err) => {
+        $("dirpicker-error").textContent = String(err.message || err);
+      });
+      dirPickerDialog.showModal();
+    });
+    $("dirpicker-cancel").addEventListener("click", () => dirPickerDialog.close());
+    $("dirpicker-use").addEventListener("click", () => {
+      $("spawn-cwd").value = dirPickerPath;
+      dirPickerDialog.close();
     });
 
     if (!connectStream()) {
