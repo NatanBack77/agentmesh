@@ -33,6 +33,7 @@ func (e *Engine) registerRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("POST /agents/{id}/key", e.handleSendKey)
 	mux.HandleFunc("GET /agents/{id}/screen", e.handleScreen)
+	mux.HandleFunc("GET /agents/{id}/screen/events", e.handleScreenEvents)
 }
 
 type agentView struct {
@@ -196,17 +197,21 @@ func (e *Engine) handleBroadcast(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, code, resp)
 }
 
-// handleSendKey sends one named tmux key (Enter, C-c, Escape, ...) straight
-// into an agent's session, bypassing every turn-status gate assign/handoff
-// have. Used to script past interactive first-run screens (theme picker,
-// trust prompt) that block before an agent ever reaches a detectable idle
-// prompt the normal primitives could target.
+// handleSendKey sends one named tmux key (Enter, C-c, Escape, ...) or a
+// literal text string straight into an agent's session, bypassing every
+// turn-status gate assign/handoff have. Named keys script past interactive
+// first-run screens (theme picker, trust prompt) that block before an
+// agent ever reaches a detectable idle prompt the normal primitives could
+// target; literal text is what the dashboard's live terminal view uses to
+// let a human type a command/message directly into a running agent.
 func (e *Engine) handleSendKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Key string `json:"key"`
+		Key    string `json:"key"`
+		Text   string `json:"text"`
+		Submit bool   `json:"submit"` // press Enter right after typing Text
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Key == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key is required"})
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.Key == "" && req.Text == "") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key or text is required"})
 		return
 	}
 	ps, err := e.primitives.resolveTarget(r.PathValue("id"))
@@ -214,6 +219,22 @@ func (e *Engine) handleSendKey(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
+
+	if req.Text != "" {
+		if err := tmuxdrv.SendLiteral(ps.TerminalID, req.Text); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if req.Submit {
+			if err := tmuxdrv.SendKey(ps.TerminalID, "Enter"); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+		return
+	}
+
 	if err := tmuxdrv.SendKey(ps.TerminalID, req.Key); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

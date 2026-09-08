@@ -138,7 +138,13 @@ atualizações em tempo real por SSE (`/dashboard/events`) e tem 4 abas:
 - **Visão geral** — saúde do mesh, lista de agentes e o mapa de
   delegação (grafo real, não lista plana — a posição de cada nó vem da
   árvore parent_id/chain_depth).
-- **Agentes** — a mesma lista, com busca e filtro por status.
+- **Agentes** — a mesma lista, com busca e filtro por status. Clicar num
+  agente abre um drawer com "Ver tela ao vivo": a tela real do tmux
+  atualizando sozinha (SSE, `GET /agents/{id}/screen/events`), mais um
+  campo pra digitar e enviar um comando/mensagem direto pro agente sem
+  sair do navegador. Custo zero de captura extra — o mesmo poll de 300ms
+  que já existe pra detecção de status (`OutputMonitor`) alimenta esse
+  stream; ele só empurra pro navegador quando o texto muda de verdade.
 - **Coordenação** — a topologia de delegação em tamanho grande, mais os
   sinais/primitivas do mesh.
 - **Custos** — quota real do plano (barras de sessão/semana, os

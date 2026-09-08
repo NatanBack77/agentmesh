@@ -627,19 +627,63 @@ const dashboardHTML = `<!doctype html>
     .drawer-grid div span { display: block; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
     .drawer-grid div strong { font-size: 12.5px; }
     .drawer .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .term-pane { margin-top: 10px; }
+    .term-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-bottom: none;
+      border-radius: var(--radius) var(--radius) 0 0;
+      background: #171c14;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: var(--faint);
+    }
+    .term-live {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-size: 10.5px;
+    }
+    .term-live .dot { width: 7px; height: 7px; background: var(--faint); }
+    .term-live.on .dot { background: var(--accent); animation: term-pulse 1.6s ease-in-out infinite; }
+    .term-live.error .dot { background: var(--red); animation: none; }
+    @keyframes term-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
     .screen {
-      margin-top: 10px;
+      margin: 0;
       background: var(--ink);
       border: 1px solid var(--line);
-      border-radius: var(--radius);
+      border-radius: 0 0 var(--radius) var(--radius);
       padding: 10px;
-      max-height: 220px;
+      /* Fixed, not max: a live-updating pane whose box size follows its
+         content would shift every element below it (the command input)
+         each time new output arrives — a moving target for both real
+         clicks and typing. */
+      height: 280px;
       overflow: auto;
       white-space: pre-wrap;
-      font-size: 11.5px;
-      color: var(--muted);
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text);
     }
-    .keysend { display: flex; gap: 6px; margin-top: 8px; }
+    .term-input { display: flex; gap: 6px; margin-top: 8px; }
+    .term-input input {
+      border: 1px solid var(--line);
+      background: var(--ink);
+      color: var(--text);
+      border-radius: var(--radius);
+      height: 34px;
+      padding: 0 10px;
+      flex: 1;
+      min-width: 0;
+    }
+    .term-input input:focus-visible { outline-offset: 0; }
+    .keysend { display: flex; gap: 6px; margin-top: 6px; }
     .keysend input {
       border: 1px solid var(--line);
       background: var(--ink);
@@ -1050,6 +1094,11 @@ const dashboardHTML = `<!doctype html>
     const recentEvents = [];
     let currentAgents = [];
     let selectedId = "";
+    // Last-seen screen text per agent (keyed by terminal_id), kept outside
+    // the DOM: the agents table is fully rebuilt on every SSE snapshot, so
+    // a plain in-DOM update raced against the next live redraw and got
+    // silently wiped whenever an agent's status changed mid-stream.
+    let screenState = {};
     let query = "";
     let statusFilter = "";
 
@@ -1072,6 +1121,11 @@ const dashboardHTML = `<!doctype html>
       });
       tab.focus();
       if (tab.id === "tab-coord") renderTopology(currentAgents, "topology-2", "topo2-summary");
+      // Re-render immediately so the newly visible tab's agent table picks
+      // up the drawer without waiting for the next SSE tick (see the
+      // panelVisible gate in render()).
+      renderAgentsTable("agents-body", currentAgents, { withDrawer: panelVisible("panel-overview") });
+      renderAgentsTable("agents-body-2", filterAgents(currentAgents), { withDrawer: panelVisible("panel-agents") });
     }
     tabs.forEach((tab, i) => {
       tab.addEventListener("click", () => selectTab(tab));
@@ -1143,8 +1197,14 @@ const dashboardHTML = `<!doctype html>
         metric("Atenção", s.needs_attention, "intervenção humana", null, s.needs_attention > 0 ? "bad" : "ok")
       ].join("");
 
-      renderAgentsTable("agents-body", data.agents, { withDrawer: true });
-      renderAgentsTable("agents-body-2", filterAgents(data.agents), { withDrawer: true });
+      // Only the table in the currently visible tab gets the drawer's
+      // interactive markup — both tables render off the same selectedId,
+      // and rendering it into both at once (even the one that's hidden)
+      // would duplicate ids (act-screen, screen-out, ...) across two live
+      // DOM nodes, so a single click fired two conflicting listeners on
+      // what document.getElementById treated as "the same" button.
+      renderAgentsTable("agents-body", data.agents, { withDrawer: panelVisible("panel-overview") });
+      renderAgentsTable("agents-body-2", filterAgents(data.agents), { withDrawer: panelVisible("panel-agents") });
       $("agents-count").textContent = data.agents.length + " no total";
       renderTopology(data.agents, "topology", null);
       if (!$("panel-coord").hidden) renderTopology(data.agents, "topology-2", "topo2-summary");
@@ -1153,6 +1213,11 @@ const dashboardHTML = `<!doctype html>
       renderQuota(data.quotas);
       renderKnownDirs(data.agents, data.costs);
       renderActivity();
+    }
+
+    function panelVisible(panelId) {
+      const el = document.getElementById(panelId);
+      return !!el && !el.hidden;
     }
 
     function filterAgents(agents) {
@@ -1177,6 +1242,15 @@ const dashboardHTML = `<!doctype html>
         wireEmptyState(el);
         return;
       }
+      // A live SSE snapshot (including the forced 15s heartbeat) can land
+      // mid-keystroke — without preserving focus/value across the innerHTML
+      // rebuild below, a command someone's still typing into the drawer
+      // gets silently wiped and focus jumps to <body>.
+      const active = document.activeElement;
+      let restore = null;
+      if (active && active.id && el.contains(active) && "value" in active) {
+        restore = { id: active.id, value: active.value, start: active.selectionStart, end: active.selectionEnd };
+      }
       el.innerHTML =
         '<table class="agents"><caption class="sr-only">Lista de agentes registrados no mesh</caption><thead><tr>' +
           '<th scope="col">Agente / diretório</th><th scope="col">Status</th><th scope="col">Provider</th>' +
@@ -1187,7 +1261,9 @@ const dashboardHTML = `<!doctype html>
       el.querySelectorAll("tr[data-id]").forEach((tr) => {
         const btn = tr.querySelector(".rowbtn");
         btn.addEventListener("click", () => {
-          selectedId = selectedId === tr.dataset.id ? "" : tr.dataset.id;
+          const newId = selectedId === tr.dataset.id ? "" : tr.dataset.id;
+          if (liveScreenAgentId && liveScreenAgentId !== newId) stopLiveScreen();
+          selectedId = newId;
           renderAgentsTable(targetId, agents, opts);
         });
       });
@@ -1197,6 +1273,14 @@ const dashboardHTML = `<!doctype html>
           const host = el.querySelector('tr[data-id="' + cssEscape(selectedId) + '"]');
           if (host) host.insertAdjacentHTML("afterend", '<tr><td colspan="6">' + drawer(agent) + '</td></tr>');
           wireDrawer(agent);
+        }
+      }
+      if (restore) {
+        const el2 = document.getElementById(restore.id);
+        if (el2) {
+          el2.value = restore.value;
+          el2.focus();
+          if (el2.setSelectionRange) el2.setSelectionRange(restore.start, restore.end);
         }
       }
     }
@@ -1218,6 +1302,12 @@ const dashboardHTML = `<!doctype html>
     }
 
     function drawer(a) {
+      const screen = screenState[a.terminal_id];
+      const screenText = screen ? safe(screen.text) : "";
+      const isLive = liveScreenAgentId === a.terminal_id;
+      const liveLabel = isLive ? "Parar" : "Ver tela ao vivo";
+      const liveClass = isLive ? (liveScreenErrored ? "term-live error" : "term-live on") : "term-live";
+      const liveStatus = isLive ? (liveScreenErrored ? "erro na conexão" : "ao vivo") : "parado";
       return '<div class="drawer">' +
         '<div class="drawer-grid">' +
           '<div><span>Pai</span><strong>' + (a.parent_id ? safe(a.parent_id.slice(0, 8)) : '—') + '</strong></div>' +
@@ -1226,39 +1316,127 @@ const dashboardHTML = `<!doctype html>
           '<div><span>Criado</span><strong>' + new Date(a.created_at).toLocaleTimeString() + '</strong></div>' +
         '</div>' +
         '<div class="actions">' +
-          '<button class="btn" id="act-screen" data-id="' + safe(a.terminal_id) + '"><span aria-hidden="true">▤</span> Ver tela</button>' +
+          '<button class="btn" id="act-screen" data-id="' + safe(a.terminal_id) + '">' + (isLive ? '<span aria-hidden="true">■</span> ' + liveLabel : '<span aria-hidden="true">▤</span> ' + liveLabel) + '</button>' +
           '<button class="btn" id="act-kill" data-id="' + safe(a.terminal_id) + '"><span aria-hidden="true">✕</span> Encerrar</button>' +
         '</div>' +
-        '<pre class="screen" id="screen-out" hidden></pre>' +
+        '<div class="term-pane" ' + (screen ? '' : 'hidden') + ' id="term-pane">' +
+          '<div class="term-head">' +
+            '<span>' + safe(a.name) + ' — tela do tmux</span>' +
+            '<span class="' + liveClass + '" id="term-live-indicator" role="status"><i class="dot" aria-hidden="true"></i>' + liveStatus + '</span>' +
+          '</div>' +
+          '<pre class="screen" id="screen-out">' + screenText + '</pre>' +
+        '</div>' +
+        '<form class="term-input" id="term-input-form">' +
+          '<label class="sr-only" for="term-input">Comando pra digitar e enviar (Enter) no agente ' + safe(a.name) + '</label>' +
+          '<input id="term-input" placeholder="digite um comando e Enter…" autocomplete="off">' +
+          '<button class="btn primary" type="submit">Enviar</button>' +
+        '</form>' +
         '<form class="keysend" id="keysend-form">' +
-          '<label class="sr-only" for="keysend-input">Tecla ou texto para enviar ao agente ' + safe(a.name) + '</label>' +
-          '<input id="keysend-input" placeholder="Enter, C-c, Escape…">' +
+          '<label class="sr-only" for="keysend-input">Tecla especial pra enviar ao agente ' + safe(a.name) + '</label>' +
+          '<input id="keysend-input" placeholder="tecla especial: Enter, C-c, Escape…">' +
           '<button class="btn" type="submit">Enviar tecla</button>' +
         '</form>' +
       '</div>';
+    }
+
+    // Only one agent's screen streams at a time — deliberately: each stream
+    // is a held-open SSE connection plus a 300ms server-side ticker, and a
+    // human can only watch one terminal at once anyway. Switching agents or
+    // closing the drawer always tears the old one down first.
+    let liveScreenSource = null;
+    let liveScreenAgentId = null;
+    let liveScreenErrored = false;
+
+    function trimTrailingBlankLines(text) {
+      return String(text ?? "").replace(/\n+$/, "");
+    }
+
+    function stopLiveScreen() {
+      if (liveScreenSource) liveScreenSource.close();
+      liveScreenSource = null;
+      liveScreenAgentId = null;
+      liveScreenErrored = false;
+    }
+
+    function updateLiveIndicator() {
+      const el = document.getElementById("term-live-indicator");
+      if (!el) return;
+      el.className = liveScreenErrored ? "term-live error" : "term-live on";
+      el.innerHTML = '<i class="dot" aria-hidden="true"></i>' + (liveScreenErrored ? "erro na conexão" : "ao vivo");
+    }
+
+    function startLiveScreen(agent) {
+      stopLiveScreen();
+      liveScreenAgentId = agent.terminal_id;
+      screenState[agent.terminal_id] = screenState[agent.terminal_id] || { text: "conectando…" };
+
+      const pane = document.getElementById("term-pane");
+      if (pane) pane.hidden = false;
+      renderScreenButtonLabel(agent.terminal_id, true);
+
+      const src = new EventSource("/agents/" + encodeURIComponent(agent.terminal_id) + "/screen/events");
+      liveScreenSource = src;
+      src.addEventListener("screen", (event) => {
+        liveScreenErrored = false;
+        const data = JSON.parse(event.data);
+        // tmux capture-pane always returns the full pane height padded
+        // with trailing blank lines — scrolling to the literal bottom
+        // without trimming those lands past the real last line, on empty
+        // space, which just looks like the pane went blank.
+        const text = trimTrailingBlankLines(data.text);
+        screenState[agent.terminal_id] = { text };
+        const out = document.getElementById("screen-out");
+        if (out) {
+          out.textContent = text;
+          out.scrollTop = out.scrollHeight;
+        }
+        updateLiveIndicator();
+      });
+      src.onerror = () => {
+        liveScreenErrored = true;
+        updateLiveIndicator();
+      };
+    }
+
+    function renderScreenButtonLabel(agentId, live) {
+      const btn = document.getElementById("act-screen");
+      if (!btn) return;
+      btn.innerHTML = live
+        ? '<span aria-hidden="true">■</span> Parar'
+        : '<span aria-hidden="true">▤</span> Ver tela ao vivo';
     }
 
     function wireDrawer(agent) {
       const screenBtn = $("act-screen");
       const killBtn = $("act-kill");
       const keyForm = $("keysend-form");
-      if (screenBtn) screenBtn.addEventListener("click", async () => {
-        const out = $("screen-out");
-        out.hidden = false;
-        out.textContent = "carregando…";
-        try {
-          const res = await fetch("/agents/" + encodeURIComponent(agent.terminal_id) + "/screen");
-          const data = await res.json();
-          out.textContent = data.text || "(tela vazia)";
-        } catch (err) {
-          out.textContent = "erro ao ler tela: " + err;
+      const termForm = $("term-input-form");
+      if (screenBtn) screenBtn.addEventListener("click", () => {
+        if (liveScreenAgentId === agent.terminal_id) {
+          stopLiveScreen();
+          renderScreenButtonLabel(agent.terminal_id, false);
+        } else {
+          startLiveScreen(agent);
         }
       });
       if (killBtn) killBtn.addEventListener("click", async () => {
         if (!window.confirm('Encerrar o agente "' + agent.name + '"?')) return;
+        if (liveScreenAgentId === agent.terminal_id) stopLiveScreen();
         await fetch("/agents/" + encodeURIComponent(agent.terminal_id), { method: "DELETE" });
+        delete screenState[agent.terminal_id];
         selectedId = "";
         loadDashboard().catch(console.error);
+      });
+      if (termForm) termForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const input = $("term-input");
+        if (!input.value) return;
+        await fetch("/agents/" + encodeURIComponent(agent.terminal_id) + "/key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: input.value, submit: true })
+        });
+        input.value = "";
       });
       if (keyForm) keyForm.addEventListener("submit", async (e) => {
         e.preventDefault();

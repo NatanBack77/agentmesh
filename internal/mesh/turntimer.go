@@ -144,6 +144,19 @@ func newOutputMonitor(sessionName string, p Provider, onChange func(Status, stri
 	}
 }
 
+// LastText returns the pane text from the most recent poll tick — the same
+// buffer status detection already reads. Callers that just want to display
+// "what's on screen right now" (the dashboard's live viewer) should use
+// this instead of a fresh tmuxdrv.CapturePane call: the 300ms poll loop is
+// already paying for that capture, so a second independent poller would
+// double the `tmux capture-pane` process-spawns per agent for no new
+// information.
+func (m *OutputMonitor) LastText() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastText
+}
+
 // Start begins polling in the background.
 func (m *OutputMonitor) Start() { go m.loop() }
 
