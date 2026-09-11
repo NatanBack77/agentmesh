@@ -109,6 +109,16 @@
     .settings-button { position: relative; z-index: 1; min-height: 32px; padding: 0 11px; border: 1px solid var(--stroke-strong); border-radius: 9px; background: var(--surface-thin); color: var(--label); cursor: pointer; pointer-events: auto; }
     .settings-button:hover { background: var(--surface); }
     .settings-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .settings-button--destructive {
+      border-color: color-mix(in srgb, var(--destructive) 42%, var(--stroke-strong));
+      color: var(--destructive);
+      background: color-mix(in srgb, var(--destructive) 7%, var(--surface-thin));
+    }
+    .settings-button--destructive:hover {
+      border-color: color-mix(in srgb, var(--destructive) 58%, var(--stroke-strong));
+      background: color-mix(in srgb, var(--destructive) 13%, var(--surface));
+    }
+    .settings-button--destructive:disabled { cursor: wait; opacity: .65; }
     .settings-status { min-height: 18px; margin: 14px 0 0; color: var(--secondary-label); font-size: 11px; }
 
     .accent-swatches { display: flex; flex-wrap: wrap; gap: 8px; max-width: 240px; justify-content: flex-end; }
@@ -116,12 +126,20 @@
     .accent-swatch[aria-pressed="true"] { border-color: var(--label); box-shadow: 0 0 0 2px var(--surface); }
     .accent-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-    .provider-checks { display: flex; gap: 12px; }
-    .provider-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+    .provider-row { align-items: flex-start; }
+    .provider-row > .settings-control { flex: 1 1 300px; min-width: 0; }
+    .provider-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; width: 100%; min-width: 0; }
+    .provider-check { min-width: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+    .provider-check span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .mesh-status-row { display: flex; align-items: center; gap: 8px; }
     .mesh-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tertiary-label); flex: none; }
     .mesh-status-dot[data-connected="true"] { background: var(--green); }
+
+    @media (max-width: 520px) {
+      .settings-row.provider-row { flex-direction: column; align-items: stretch; gap: 8px; }
+      .provider-row > .settings-control { flex-basis: auto; }
+    }
   </style>
 </head>
 <body>
@@ -210,7 +228,7 @@
     <section class="settings-card surface-strong" aria-labelledby="providers-heading">
       <p class="eyebrow">Modelos & integração</p>
       <h2 id="providers-heading">Providers e AgentMesh</h2>
-      <div class="settings-row">
+      <div class="settings-row provider-row">
         <div><strong>Modelos visíveis</strong><small>Quais rings aparecem na notch</small></div>
         <div class="provider-checks settings-control" id="provider-checks"></div>
       </div>
@@ -221,6 +239,17 @@
         </div>
         <div class="settings-control">
           <button class="settings-button" id="open-mesh-button" type="button">Abrir Dashboard</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-card surface-strong" aria-labelledby="app-heading">
+      <p class="eyebrow">Aplicativo</p>
+      <h2 id="app-heading">Sessão do MeshNotch</h2>
+      <div class="settings-row">
+        <div><strong>Fechar aplicativo</strong><small>Encerra a notch e o processo do MeshNotch.</small></div>
+        <div class="settings-control">
+          <button class="settings-button settings-button--destructive" id="quit-app-button" type="button">Sair do MeshNotch</button>
         </div>
       </div>
     </section>
@@ -326,6 +355,17 @@
       });
 
       document.getElementById("open-mesh-button")?.addEventListener("click", () => invoke("open_agentmesh_dashboard"));
+
+      document.getElementById("quit-app-button")?.addEventListener("click", (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        button.textContent = "Fechando...";
+        invoke("quit_app").catch(() => {
+          button.disabled = false;
+          button.textContent = "Sair do MeshNotch";
+          setStatus("Não foi possível fechar o aplicativo");
+        });
+      });
 
       document.addEventListener("codenotch:state", (event) => {
         const state = event.detail || {};

@@ -1,4 +1,5 @@
 use crate::provider::{now_ms, parse_reset, LimitWindow, ProviderSnapshot};
+use crate::usage_cache;
 use std::time::Duration;
 
 const ENDPOINT: &str = "https://api.anthropic.com/api/oauth/usage";
@@ -85,10 +86,13 @@ fn parse_windows(value: &serde_json::Value) -> Vec<LimitWindow> {
 
 pub fn fetch() -> ProviderSnapshot {
     let mut snapshot = ProviderSnapshot::absent("claude", "Claude", "C");
+    if let Some(snapshot) = usage_cache::cached_or_backoff("claude", snapshot.clone()) {
+        return snapshot;
+    }
     let Some(token) = read_token() else {
         snapshot.status = "needsAuth".into();
         snapshot.note = "Sign in with Claude Code to create ~/.claude credentials.".into();
-        return snapshot;
+        return usage_cache::preserve_failure("claude", snapshot, "needsAuth", "Sign in with Claude Code to create ~/.claude credentials.".into());
     };
 
     let response = ureq::get(ENDPOINT)
@@ -100,28 +104,25 @@ pub fn fetch() -> ProviderSnapshot {
     match response {
         Ok(resp) => match resp.into_json::<serde_json::Value>() {
             Ok(value) => {
-                snapshot.status = "ok".into();
-                snapshot.available = true;
                 snapshot.windows = parse_windows(&value);
                 snapshot.fetched_at = now_ms();
+                return usage_cache::record_success("claude", snapshot);
             }
             Err(err) => {
-                snapshot.status = "error".into();
-                snapshot.note = format!("Claude response parse failed: {err}");
+                return usage_cache::preserve_failure("claude", snapshot, "error", format!("Claude response parse failed: {err}"));
             }
         },
         Err(ureq::Error::Status(401 | 403, _)) => {
-            snapshot.status = "needsAuth".into();
-            snapshot.note = "Claude credential was rejected; refresh Claude Code login.".into();
+            return usage_cache::preserve_failure("claude", snapshot, "needsAuth", "Claude credential was rejected; refresh Claude Code login.".into());
         }
-        Err(ureq::Error::Status(429, _)) => {
-            snapshot.status = "backoff".into();
-            snapshot.note = "Claude usage endpoint is rate limited.".into();
+        Err(ureq::Error::Status(429, response)) => {
+            let retry_after = response.header("Retry-After").and_then(|value| value.trim().parse::<u64>().ok());
+            let body = response.into_string().unwrap_or_default();
+            let spend_cap = usage_cache::is_spend_cap_response(&body) || retry_after.is_none();
+            return usage_cache::record_rate_limit("claude", snapshot, retry_after, spend_cap);
         }
         Err(err) => {
-            snapshot.status = "error".into();
-            snapshot.note = err.to_string();
+            return usage_cache::preserve_failure("claude", snapshot, "error", err.to_string());
         }
     }
-    snapshot
 }

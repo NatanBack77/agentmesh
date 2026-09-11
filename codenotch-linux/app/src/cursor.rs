@@ -1,4 +1,5 @@
 use crate::provider::{now_ms, parse_reset, LimitWindow, ProviderSnapshot};
+use crate::usage_cache;
 use rusqlite::OpenFlags;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -84,10 +85,13 @@ fn parse_summary(value: &serde_json::Value) -> (Vec<LimitWindow>, String) {
 
 pub fn fetch() -> ProviderSnapshot {
     let mut snapshot = ProviderSnapshot::absent("cursor", "Cursor", "Cu");
+    if let Some(snapshot) = usage_cache::cached_or_backoff("cursor", snapshot.clone()) {
+        return snapshot;
+    }
     let Some(cookie) = read_cookie() else {
         snapshot.status = "needsAuth".into();
         snapshot.note = "Sign in to Cursor editor to expose its local session.".into();
-        return snapshot;
+        return usage_cache::preserve_failure("cursor", snapshot, "needsAuth", "Sign in to Cursor editor to expose its local session.".into());
     };
 
     let response = ureq::get(ENDPOINT)
@@ -101,24 +105,26 @@ pub fn fetch() -> ProviderSnapshot {
             Ok(value) => {
                 let (windows, note) = parse_summary(&value);
                 snapshot.status = if windows.is_empty() { "none" } else { "ok" }.into();
-                snapshot.available = true;
                 snapshot.windows = windows;
                 snapshot.fetched_at = now_ms();
                 snapshot.note = note;
+                return usage_cache::record_success("cursor", snapshot);
             }
             Err(err) => {
-                snapshot.status = "error".into();
-                snapshot.note = format!("Cursor response parse failed: {err}");
+                return usage_cache::preserve_failure("cursor", snapshot, "error", format!("Cursor response parse failed: {err}"));
             }
         },
         Err(ureq::Error::Status(401 | 403, _)) => {
-            snapshot.status = "needsAuth".into();
-            snapshot.note = "Cursor session rejected; sign in again in Cursor.".into();
+            return usage_cache::preserve_failure("cursor", snapshot, "needsAuth", "Cursor session rejected; sign in again in Cursor.".into());
+        }
+        Err(ureq::Error::Status(429, response)) => {
+            let retry_after = response.header("Retry-After").and_then(|value| value.trim().parse::<u64>().ok());
+            let body = response.into_string().unwrap_or_default();
+            let spend_cap = usage_cache::is_spend_cap_response(&body) || retry_after.is_none();
+            return usage_cache::record_rate_limit("cursor", snapshot, retry_after, spend_cap);
         }
         Err(err) => {
-            snapshot.status = "error".into();
-            snapshot.note = err.to_string();
+            return usage_cache::preserve_failure("cursor", snapshot, "error", err.to_string());
         }
     }
-    snapshot
 }

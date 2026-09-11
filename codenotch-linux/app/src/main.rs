@@ -12,10 +12,11 @@ mod provider;
 mod server;
 mod state;
 mod tray;
+mod usage_cache;
 mod watcher;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
 const NOTCH_W_VERTICAL: f64 = 360.0;
@@ -27,6 +28,7 @@ pub struct AppState {
     store: Mutex<state::Store>,
     cfg: Mutex<config::Config>,
     programmatic_move: AtomicBool,
+    refresh_in_progress: Arc<AtomicBool>,
 }
 
 pub fn broadcast(app: &AppHandle) {
@@ -40,8 +42,13 @@ pub fn broadcast(app: &AppHandle) {
 }
 
 pub fn refresh_all(app: &AppHandle) {
+    let app_state = app.state::<AppState>();
+    if app_state.refresh_in_progress.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        return;
+    }
     let app = app.clone();
     std::thread::spawn(move || {
+        let _refresh_guard = RefreshGuard(app.state::<AppState>().refresh_in_progress.clone());
         let mut snapshots = vec![claude::fetch(), codex::fetch(), cursor::fetch()];
         snapshots.extend(local_runtime::fetch_all());
         let mesh = agentmesh::fetch();
@@ -55,6 +62,14 @@ pub fn refresh_all(app: &AppHandle) {
         }
         broadcast(&app);
     });
+}
+
+struct RefreshGuard(Arc<AtomicBool>);
+
+impl Drop for RefreshGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 pub fn reset_notch(app: &AppHandle) {
@@ -149,7 +164,11 @@ fn persist_notch_move(app: &AppHandle, position: tauri::PhysicalPosition<i32>) {
 fn poll_usage(app: AppHandle) {
     std::thread::spawn(move || loop {
         refresh_all(&app);
-        std::thread::sleep(std::time::Duration::from_secs(300));
+        let refreshing = app.state::<AppState>().refresh_in_progress.clone();
+        while refreshing.load(Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        std::thread::sleep(usage_cache::next_poll_delay());
     });
 }
 
@@ -335,6 +354,11 @@ fn open_agentmesh_dashboard(state: tauri::State<AppState>) -> Result<(), String>
     platform::open_url(&url)
 }
 
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 fn main() {
     let cfg = config::load();
     let port = cfg.port;
@@ -348,6 +372,7 @@ fn main() {
             store: Mutex::new(Default::default()),
             cfg: Mutex::new(cfg),
             programmatic_move: AtomicBool::new(false),
+            refresh_in_progress: Arc::new(AtomicBool::new(false)),
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
@@ -367,7 +392,8 @@ fn main() {
             set_accent,
             set_enabled_providers,
             reset_notch_position,
-            open_agentmesh_dashboard
+            open_agentmesh_dashboard,
+            quit_app
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

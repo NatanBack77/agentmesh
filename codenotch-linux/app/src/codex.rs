@@ -1,4 +1,5 @@
 use crate::provider::{now_ms, LimitWindow, ProviderSnapshot};
+use crate::usage_cache;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -125,6 +126,7 @@ fn fallback_snapshot() -> Option<ProviderSnapshot> {
                 label: "Codex".into(),
                 glyph: "Cx".into(),
                 status: "stale".into(),
+                next_retry_at: None,
                 windows,
                 fetched_at: now_ms(),
                 note: "From latest Codex rollout snapshot.".into(),
@@ -136,12 +138,14 @@ fn fallback_snapshot() -> Option<ProviderSnapshot> {
 
 pub fn fetch() -> ProviderSnapshot {
     let mut snapshot = ProviderSnapshot::absent("codex", "Codex", "Cx");
+    if let Some(snapshot) = usage_cache::cached_or_backoff("codex", snapshot.clone()) {
+        return snapshot;
+    }
     let Some(credential) = load_credential() else {
-        return fallback_snapshot().unwrap_or_else(|| {
-            snapshot.status = "needsAuth".into();
-            snapshot.note = "Sign in with Codex CLI to create ~/.codex/auth.json.".into();
-            snapshot
-        });
+        if let Some(fallback) = fallback_snapshot() {
+            return usage_cache::preserve_failure("codex", fallback.clone(), "stale", fallback.note.clone());
+        }
+        return usage_cache::preserve_failure("codex", snapshot, "needsAuth", "Sign in with Codex CLI to create ~/.codex/auth.json.".into());
     };
     let response = ureq::get(ENDPOINT)
         .set("Authorization", &format!("Bearer {}", credential.access_token))
@@ -154,24 +158,25 @@ pub fn fetch() -> ProviderSnapshot {
     match response {
         Ok(resp) => match resp.into_json::<serde_json::Value>() {
             Ok(value) => {
-                snapshot.status = "ok".into();
-                snapshot.available = true;
                 snapshot.windows = windows_from_usage(&value);
                 snapshot.fetched_at = now_ms();
+                return usage_cache::record_success("codex", snapshot);
             }
             Err(err) => {
-                snapshot.status = "error".into();
-                snapshot.note = format!("Codex response parse failed: {err}");
+                return usage_cache::preserve_failure("codex", snapshot, "error", format!("Codex response parse failed: {err}"));
             }
         },
         Err(ureq::Error::Status(401 | 403, _)) => {
-            snapshot.status = "needsAuth".into();
-            snapshot.note = "Codex session rejected; renew Codex CLI login.".into();
+            return usage_cache::preserve_failure("codex", snapshot, "needsAuth", "Codex session rejected; renew Codex CLI login.".into());
+        }
+        Err(ureq::Error::Status(429, response)) => {
+            let retry_after = response.header("Retry-After").and_then(|value| value.trim().parse::<u64>().ok());
+            let body = response.into_string().unwrap_or_default();
+            let spend_cap = usage_cache::is_spend_cap_response(&body) || retry_after.is_none();
+            return usage_cache::record_rate_limit("codex", snapshot, retry_after, spend_cap);
         }
         Err(err) => {
-            snapshot.status = "error".into();
-            snapshot.note = err.to_string();
+            return usage_cache::preserve_failure("codex", snapshot, "error", err.to_string());
         }
     }
-    snapshot
 }

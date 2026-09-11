@@ -19,4 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
 RUN cargo install tauri-cli --version "^2.0" --locked
 
+# ureq's native-tls feature needs openssl-sys, which needs libssl-dev at build
+# time (separate RUN so a future edit here doesn't invalidate the tauri-cli
+# compile cached above).
+RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /work

@@ -24,6 +24,8 @@ pub struct ProviderSnapshot {
     pub label: String,
     pub glyph: String,
     pub status: String,
+    #[serde(default)]
+    pub next_retry_at: Option<u64>,
     pub windows: Vec<LimitWindow>,
     pub fetched_at: u64,
     pub note: String,
@@ -41,6 +43,7 @@ impl ProviderSnapshot {
             label: name.into(),
             glyph: glyph.into(),
             status: "absent".into(),
+            next_retry_at: None,
             windows: Vec::new(),
             fetched_at: 0,
             note: String::new(),
@@ -64,6 +67,7 @@ impl ProviderSnapshot {
             } else {
                 "absent".into()
             },
+            next_retry_at: None,
             windows: Vec::new(),
             fetched_at: now_ms(),
             note: String::new(),

@@ -82,6 +82,11 @@
         <path d="M19.4 13.5a1.8 1.8 0 0 0 .36 1.98l.06.06a2.18 2.18 0 1 1-3.08 3.08l-.06-.06a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.09 1.65v.17a2.18 2.18 0 1 1-4.36 0v-.09a1.8 1.8 0 0 0-1.18-1.65 1.8 1.8 0 0 0-1.98.36l-.06.06a2.18 2.18 0 1 1-3.08-3.08l.06-.06a1.8 1.8 0 0 0 .36-1.98 1.8 1.8 0 0 0-1.65-1.09h-.17a2.18 2.18 0 1 1 0-4.36h.09a1.8 1.8 0 0 0 1.65-1.18 1.8 1.8 0 0 0-.36-1.98l-.06-.06a2.18 2.18 0 1 1 3.08-3.08l.06.06a1.8 1.8 0 0 0 1.98.36h.09a1.8 1.8 0 0 0 1.09-1.65v-.17a2.18 2.18 0 1 1 4.36 0v.09a1.8 1.8 0 0 0 1.09 1.65h.09a1.8 1.8 0 0 0 1.98-.36l.06-.06a2.18 2.18 0 1 1 3.08 3.08l-.06.06a1.8 1.8 0 0 0-.36 1.98v.09a1.8 1.8 0 0 0 1.65 1.09h.17a2.18 2.18 0 1 1 0 4.36h-.09a1.8 1.8 0 0 0-1.65 1.09Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path>
       </svg>
     </button>
+    <button class="orb quit-orb" type="button" id="quit-app-orb" aria-label="Fechar MeshNotch" title="Fechar MeshNotch">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M7 7l10 10M17 7 7 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+      </svg>
+    </button>
   </div>
 
   <div class="ring-tooltip" id="ring-tooltip" role="tooltip"></div>
@@ -172,7 +177,44 @@
         return typeof value === "number" && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : null;
       }
 
+      function isStaleProvider(provider) {
+        return provider?.status === "stale" || provider?.status === "backoff";
+      }
+
+      function relativeAge(timestamp) {
+        if (!timestamp) return "tempo desconhecido";
+        const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+        if (minutes < 1) return "agora há pouco";
+        if (minutes < 60) return `há ${minutes} min`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `há ${hours} h`;
+        return `há ${Math.floor(hours / 24)} d`;
+      }
+
+      function retryLabel(timestamp) {
+        if (!timestamp) return "";
+        const minutes = Math.max(0, Math.ceil((timestamp - Date.now()) / 60000));
+        if (minutes < 1) return "na próxima atualização";
+        if (minutes < 60) return `em cerca de ${minutes} min`;
+        return `em cerca de ${Math.ceil(minutes / 60)} h`;
+      }
+
+      function localQuota(provider) {
+        const windows = provider?.windows || [];
+        const session = windows[0];
+        const week = windows[1];
+        return {
+          source: "local",
+          sessionPct: typeof session?.used === "number" ? clampPct(session.used * 100) : null,
+          weekPct: typeof week?.used === "number" ? clampPct(week.used * 100) : null,
+          sessionReset: formatReset(session?.resets_at),
+          weekReset: formatReset(week?.resets_at),
+          planType: ""
+        };
+      }
+
       function quotaFor(providerId, provider) {
+        if (isStaleProvider(provider) && provider?.windows?.length) return localQuota(provider);
         const mesh = latestState.agentmesh;
         if (mesh?.connected) {
           const quota = (mesh.quotas || []).find((item) => item.provider === providerId);
@@ -187,17 +229,7 @@
           };
         }
 
-        const windows = provider?.windows || [];
-        const session = windows[0];
-        const week = windows[1];
-        return {
-          source: "local",
-          sessionPct: typeof session?.used === "number" ? clampPct(session.used * 100) : null,
-          weekPct: typeof week?.used === "number" ? clampPct(week.used * 100) : null,
-          sessionReset: formatReset(session?.resets_at),
-          weekReset: formatReset(week?.resets_at),
-          planType: ""
-        };
+        return localQuota(provider);
       }
 
       function sessionState(providerId) {
@@ -230,6 +262,10 @@
           return;
         }
         item?.classList.remove("local-runtime");
+        const stale = isStaleProvider(provider) && (provider?.windows || []).length > 0;
+        const staleMinutes = stale && provider.fetched_at ? Math.max(0, Date.now() - provider.fetched_at) / 60000 : 0;
+        button.dataset.freshness = stale ? "stale" : "fresh";
+        button.dataset.staleAge = staleMinutes >= 30 ? "aged" : "recent";
         const fill = button.querySelector(".ring-fill");
         const weekFill = button.querySelector(".ring-week-fill");
         const quota = quotaFor(providerId, provider);
@@ -243,11 +279,17 @@
         if (weekLabel) weekLabel.textContent = quota.weekPct == null ? " / --" : ` / ${Math.round(weekPct)}%`;
         button.dataset.quotaSource = quota.source;
         button.dataset.quotaUnavailable = String(Boolean(quota.unavailable));
+        if (stale && quota.sessionPct != null) {
+          button.setAttribute("aria-label", `${provider.name || providerId}, ${Math.round(quota.sessionPct)} por cento, dado desatualizado ${relativeAge(provider.fetched_at)}`);
+          button.title = `Atualização temporariamente limitada · ${relativeAge(provider.fetched_at)}`;
+        } else {
+          button.setAttribute("aria-label", provider?.name || providerId);
+          button.title = provider?.note || provider?.name || providerId;
+        }
 
         const activity = sessionState(providerId);
         const status = provider && provider.status !== "ok" && provider.status !== "absent" ? provider.status : activity;
-        button.dataset.status = status;
-        button.title = provider?.note || provider?.name || providerId;
+        button.dataset.status = stale ? activity : status;
         if (openTooltipFor === providerId) renderTooltip(providerId, button);
       }
 
@@ -307,6 +349,15 @@
           ? provider.windows.map(usageBlock).join("")
           : `<p class="empty-note">${provider?.note || "Sem dados de uso ainda"}</p>`;
 
+        const stale = isStaleProvider(provider) && (provider?.windows || []).length > 0;
+        const freshnessHtml = stale
+          ? `<div class="freshness-note" data-age="${provider.fetched_at && Date.now() - provider.fetched_at >= 30 * 60000 ? "aged" : "recent"}">
+              <span class="freshness-dot" aria-hidden="true"></span>
+              <span>Último valor conhecido · atualizado ${relativeAge(provider.fetched_at)}</span>
+            </div>
+            <p class="freshness-detail">Atualização temporariamente limitada. Mantendo este valor${provider.next_retry_at ? `; nova tentativa ${retryLabel(provider.next_retry_at)}` : " até a próxima atualização"}.</p>`
+          : "";
+
         const sessionHtml = sessions.length
           ? `<div class="session-row">${sessions[0].state} · ${sessions[0].prompt || sessions[0].cwd || sessions[0].id}</div>`
           : "";
@@ -317,7 +368,7 @@
             <span class="ring-tooltip-glyph" style="--ring-color:${ringColor}">${glyph}</span>
             <h3>${name} ${usageTitle}</h3>
           </div>
-          ${body}${sessionHtml}`;
+          ${body}${freshnessHtml}${sessionHtml}`;
 
         const rect = button.getBoundingClientRect();
         const horizontal = document.documentElement.dataset.orientation === "horizontal";
@@ -366,6 +417,21 @@
       });
 
       document.getElementById("settings-orb")?.addEventListener("click", () => invoke("open_settings"));
+      document.getElementById("quit-app-orb")?.addEventListener("click", (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        button.dataset.closing = "true";
+        button.setAttribute("aria-busy", "true");
+        button.setAttribute("aria-label", "Fechando MeshNotch");
+        button.title = "Fechando MeshNotch";
+        invoke("quit_app").catch(() => {
+          button.disabled = false;
+          delete button.dataset.closing;
+          button.removeAttribute("aria-busy");
+          button.setAttribute("aria-label", "Fechar MeshNotch");
+          button.title = "Fechar MeshNotch";
+        });
+      });
 
       // Free dragging: pressing anywhere on the pill that isn't a button
       // starts an OS-level interactive move (see drag_begin in main.rs).
@@ -404,8 +470,10 @@
       const rect = () => {
         const box = notchBody.getBoundingClientRect();
         const orb = document.getElementById("settings-orb")?.getBoundingClientRect();
+        const quitOrb = document.getElementById("quit-app-orb")?.getBoundingClientRect();
         const boxes = [[box.x, box.y, box.width, box.height]];
         if (orb) boxes.push([orb.x, orb.y, orb.width, orb.height]);
+        if (quitOrb) boxes.push([quitOrb.x, quitOrb.y, quitOrb.width, quitOrb.height]);
         return boxes;
       };
       const sendHot = () => invoke("set_hot", { rects: rect(), expanded: notchBody.classList.contains("is-open") });
