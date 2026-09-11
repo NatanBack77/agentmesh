@@ -43,13 +43,16 @@ jobs:
 
       - name: Locate AppImage
         id: find
+        # `app` is a workspace member of the codenotch-linux crate, so cargo
+        # puts `target/` at the workspace root (codenotch-linux/target), not
+        # under app/ — the "Cache cargo" step above already reflects this.
         run: |
           path=$(find target/release/bundle/appimage -iname "*.AppImage" | head -n1)
           echo "path=$path" >> "$GITHUB_OUTPUT"
-        working-directory: codenotch-linux/app
+        working-directory: codenotch-linux
 
       - name: Create/update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: codenotch-linux/app/${{ steps.find.outputs.path }}
+          files: codenotch-linux/${{ steps.find.outputs.path }}
           generate_release_notes: true

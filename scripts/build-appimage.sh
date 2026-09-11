@@ -33,7 +33,9 @@ echo "==> Compilando AppImage dentro do container..."
     "$IMAGE_TAG" \
     cargo tauri build --bundles appimage
 
-OUT_DIR="$REPO_ROOT/codenotch-linux/app/target/release/bundle/appimage"
+# app/ is a workspace member of the codenotch-linux crate, so cargo puts
+# target/ at the workspace root, not under app/.
+OUT_DIR="$REPO_ROOT/codenotch-linux/target/release/bundle/appimage"
 echo
 echo "==> Pronto. AppImage em:"
 find "$OUT_DIR" -iname "*.AppImage" 2>/dev/null || echo "    (não encontrado em $OUT_DIR — confira o log acima)"
