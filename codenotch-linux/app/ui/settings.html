@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101014">
+  <title>MeshNotch · Settings</title>
+  <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 26 26"><circle cx="13" cy="5" r="3" fill="%230a84ff"/><circle cx="5" cy="19" r="3" fill="%23af52de"/><circle cx="21" cy="19" r="3" fill="%23ff9500"/></svg>'>
+  <script>
+    (() => {
+      try {
+        const theme = localStorage.getItem("codenotch.theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="./theme.css">
+  <style>
+    .settings-shell {
+      width: min(560px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 18px 0 42px;
+    }
+
+    .settings-toolbar {
+      position: relative;
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 14px 12px 72px;
+      border-radius: 16px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 10px 28px rgba(0,0,0,.08);
+    }
+
+    .settings-toolbar::before {
+      content: "";
+      position: absolute;
+      left: 18px;
+      top: 27px;
+      width: 38px;
+      height: 10px;
+      background:
+        radial-gradient(circle at 5px 5px, #ff5f57 0 4px, transparent 4.5px),
+        radial-gradient(circle at 19px 5px, #febc2e 0 4px, transparent 4.5px),
+        radial-gradient(circle at 33px 5px, #28c840 0 4px, transparent 4.5px);
+      opacity: .9;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .settings-toolbar > * { position: relative; z-index: 1; }
+
+    .settings-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 17px;
+      line-height: 22px;
+      font-weight: 650;
+    }
+
+    .settings-title p,
+    .settings-card p {
+      margin: 0;
+      color: var(--secondary-label);
+    }
+
+    .settings-card {
+      margin-top: 14px;
+      padding: 20px;
+      border-radius: 14px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.05);
+    }
+
+    .settings-card h2 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      line-height: 22px;
+      font-weight: 650;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 44px;
+      padding: 10px 0;
+      border-top: 1px solid var(--stroke);
+    }
+
+    .settings-row:first-of-type { margin-top: 18px; }
+    .settings-row label, .settings-row strong { font-size: 13px; font-weight: 600; }
+    .settings-row small { display: block; margin-top: 2px; color: var(--secondary-label); font-size: 11px; }
+    .settings-control { flex: none; }
+    .theme-modes { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--surface-thin); }
+    .theme-mode { position: relative; z-index: 1; min-height: 28px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; color: var(--secondary-label); cursor: pointer; pointer-events: auto; }
+    .theme-mode[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+    .theme-mode:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    input[type="range"] { width: 130px; accent-color: var(--accent); }
+    input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+    .settings-button { position: relative; z-index: 1; min-height: 32px; padding: 0 11px; border: 1px solid var(--stroke-strong); border-radius: 9px; background: var(--surface-thin); color: var(--label); cursor: pointer; pointer-events: auto; }
+    .settings-button:hover { background: var(--surface); }
+    .settings-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .settings-status { min-height: 18px; margin: 14px 0 0; color: var(--secondary-label); font-size: 11px; }
+
+    .accent-swatches { display: flex; flex-wrap: wrap; gap: 8px; max-width: 240px; justify-content: flex-end; }
+    .accent-swatch { position: relative; z-index: 1; width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; pointer-events: auto; }
+    .accent-swatch[aria-pressed="true"] { border-color: var(--label); box-shadow: 0 0 0 2px var(--surface); }
+    .accent-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .provider-checks { display: flex; gap: 12px; }
+    .provider-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+
+    .mesh-status-row { display: flex; align-items: center; gap: 8px; }
+    .mesh-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tertiary-label); flex: none; }
+    .mesh-status-dot[data-connected="true"] { background: var(--green); }
+  </style>
+</head>
+<body>
+  <main class="settings-shell">
+    <header class="settings-toolbar glass">
+      <div class="settings-title">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <h1>MeshNotch</h1>
+          <p>Settings shell</p>
+        </div>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+        <span class="theme-toggle__icon" id="theme-icon" aria-hidden="true">○</span>
+        <span class="theme-toggle__label" id="theme-label">Claro</span>
+      </button>
+    </header>
+
+    <section class="settings-card surface-strong" aria-labelledby="theme-heading">
+      <p class="eyebrow">Aparência</p>
+      <h2 id="theme-heading">Tema claro/escuro preparado</h2>
+      <p>
+        A preferência fica sincronizada com o estado persistido do aplicativo.
+      </p>
+      <div class="settings-row">
+        <div><strong>Tema</strong><small>Escolha o material da janela</small></div>
+        <div class="theme-modes settings-control" role="group" aria-label="Tema">
+          <button class="theme-mode" type="button" data-theme-mode="system" aria-pressed="false">Sistema</button>
+          <button class="theme-mode" type="button" data-theme-mode="light" aria-pressed="false">Claro</button>
+          <button class="theme-mode" type="button" data-theme-mode="dark" aria-pressed="false">Escuro</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div><strong>Escala</strong><small id="scale-value">100%</small></div>
+        <input class="settings-control" id="scale-control" type="range" min="0.40" max="1.00" step="0.05" value="1" aria-label="Escala da interface">
+      </div>
+      <div class="settings-row">
+        <div><strong>Iniciar com o sistema</strong><small>Disponível no menu da área de trabalho</small></div>
+        <input class="settings-control" id="autostart-control" type="checkbox" aria-label="Iniciar com o sistema">
+      </div>
+      <div class="settings-row">
+        <div><strong>Dados locais</strong><small id="probe-status">Diagnóstico Linux não carregado</small></div>
+        <div class="settings-control">
+          <button class="settings-button" id="data-dir-button" type="button">Abrir pasta</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div><strong>Providers</strong><small>Atualiza quotas e atividade agora</small></div>
+        <div class="settings-control">
+          <button class="settings-button" id="refresh-button" type="button">Atualizar agora</button>
+        </div>
+      </div>
+      <p class="settings-status" id="settings-status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="settings-card surface-strong" aria-labelledby="layout-heading">
+      <p class="eyebrow">Layout</p>
+      <h2 id="layout-heading">Notch: posição e visual</h2>
+      <p>Arraste a notch pela tela segurando o corpo dela; use os controles abaixo para ajustar orientação, cor e estilo.</p>
+      <div class="settings-row">
+        <div><strong>Orientação</strong><small>Coluna vertical (borda direita) ou linha horizontal (topo)</small></div>
+        <div class="theme-modes settings-control" role="group" aria-label="Orientação">
+          <button class="theme-mode" type="button" data-orientation-mode="vertical" aria-pressed="false">Vertical</button>
+          <button class="theme-mode" type="button" data-orientation-mode="horizontal" aria-pressed="false">Horizontal</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div><strong>Estilo</strong><small>Sólida (preta) ou vidro (bem translúcida)</small></div>
+        <div class="theme-modes settings-control" role="group" aria-label="Estilo da notch">
+          <button class="theme-mode" type="button" data-style-mode="solid" aria-pressed="false">Sólida</button>
+          <button class="theme-mode" type="button" data-style-mode="glass" aria-pressed="false">Vidro</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div><strong>Cor de destaque</strong><small>Aplicada em acentos, foco e badges</small></div>
+        <div class="accent-swatches settings-control" role="group" aria-label="Cor de destaque" id="accent-swatches"></div>
+      </div>
+      <div class="settings-row">
+        <div><strong>Reposicionar</strong><small>Volta a notch pra borda direita, no meio da tela</small></div>
+        <div class="settings-control">
+          <button class="settings-button" id="reset-position-button" type="button">Resetar posição</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-card surface-strong" aria-labelledby="providers-heading">
+      <p class="eyebrow">Modelos & integração</p>
+      <h2 id="providers-heading">Providers e AgentMesh</h2>
+      <div class="settings-row">
+        <div><strong>Modelos visíveis</strong><small>Quais rings aparecem na notch</small></div>
+        <div class="provider-checks settings-control" id="provider-checks"></div>
+      </div>
+      <div class="settings-row">
+        <div>
+          <strong>AgentMesh</strong>
+          <div class="mesh-status-row"><span class="mesh-status-dot" id="mesh-status-dot" data-connected="false"></span><small id="mesh-status-text">Procurando instância local...</small></div>
+        </div>
+        <div class="settings-control">
+          <button class="settings-button" id="open-mesh-button" type="button">Abrir Dashboard</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="./theme.js"></script>
+  <script>
+    (() => {
+      const invoke = (command, payload) => window.MeshNotchTheme?.invoke(command, payload) || Promise.resolve(null);
+      const status = document.getElementById("settings-status");
+      const modes = [...document.querySelectorAll("[data-theme-mode]")];
+      const setStatus = (message) => { status.textContent = message; };
+      const updateModes = (theme) => modes.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.themeMode === theme)));
+
+      modes.forEach((button) => button.addEventListener("click", () => {
+        const theme = button.dataset.themeMode;
+        window.MeshNotchTheme?.setTheme(theme).then(() => { updateModes(theme); setStatus("Tema salvo"); });
+      }));
+
+      document.getElementById("scale-control")?.addEventListener("input", (event) => {
+        const scale = Number(event.target.value);
+        document.getElementById("scale-value").textContent = `${Math.round(scale * 100)}%`;
+        invoke("set_scale", { scale });
+      });
+
+      document.getElementById("autostart-control")?.addEventListener("change", (event) => {
+        invoke("set_autostart", { enabled: event.target.checked })
+          .then(() => setStatus(event.target.checked ? "Autostart ativado" : "Autostart desativado"))
+          .catch(() => setStatus("Não foi possível alterar o autostart"));
+      });
+
+      document.getElementById("data-dir-button")?.addEventListener("click", () => invoke("open_data_dir"));
+      document.getElementById("refresh-button")?.addEventListener("click", () => {
+        invoke("refresh_all_cmd").then(() => setStatus("Providers atualizados"));
+      });
+
+      const ACCENTS = ["system", "pink", "red", "orange", "yellow", "green", "teal", "blue", "indigo", "purple", "off-white"];
+      const ACCENT_HEX = { system: "#0a84ff", pink: "#ff375f", red: "#ff453a", orange: "#ff9f0a", yellow: "#ffd60a", green: "#32d74b", teal: "#64d2ff", blue: "#0a84ff", indigo: "#5e5ce6", purple: "#bf5af2", "off-white": "#f2f2f7" };
+      const swatchHost = document.getElementById("accent-swatches");
+      ACCENTS.forEach((id) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "accent-swatch";
+        button.dataset.accent = id;
+        button.style.background = ACCENT_HEX[id];
+        button.setAttribute("aria-label", id);
+        button.setAttribute("aria-pressed", "false");
+        button.addEventListener("click", () => invoke("set_accent", { accent: id }).then(() => updateAccent(id)));
+        swatchHost.appendChild(button);
+      });
+      const updateAccent = (accent) => swatchHost.querySelectorAll(".accent-swatch").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.accent === accent)));
+
+      const orientationButtons = [...document.querySelectorAll("[data-orientation-mode]")];
+      const updateOrientation = (value) => orientationButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.orientationMode === value)));
+      orientationButtons.forEach((b) => b.addEventListener("click", () => invoke("set_orientation", { orientation: b.dataset.orientationMode }).then(() => updateOrientation(b.dataset.orientationMode))));
+
+      const styleButtons = [...document.querySelectorAll("[data-style-mode]")];
+      const updateStyle = (value) => styleButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.styleMode === value)));
+      styleButtons.forEach((b) => b.addEventListener("click", () => invoke("set_notch_style", { style: b.dataset.styleMode }).then(() => updateStyle(b.dataset.styleMode))));
+
+      document.getElementById("reset-position-button")?.addEventListener("click", () => invoke("reset_notch_position").then(() => setStatus("Posição da notch resetada")));
+
+      const PROVIDERS = [
+        ["claude", "Claude", "Usage"],
+        ["codex", "Codex", "Usage"],
+        ["cursor", "Cursor", "Usage"],
+        ["ollama", "Ollama", "LocalRuntime"],
+        ["lmstudio", "LM Studio", "LocalRuntime"],
+        ["gemini-cli", "Gemini CLI", "LocalRuntime"],
+        ["opencode", "OpenCode", "LocalRuntime"]
+      ];
+      const checkHost = document.getElementById("provider-checks");
+      function renderProviderChecks(providers = []) {
+        const available = providers.length ? providers : PROVIDERS.map(([id, label, kind]) => ({ id, label, name: label, kind }));
+        available.forEach((provider) => {
+          const id = provider.id || provider.provider;
+          if (!id || checkHost.querySelector(`[data-provider-check="${id}"]`)) return;
+          const label = provider.label || provider.name || id;
+          const wrap = document.createElement("label");
+          wrap.className = "provider-check";
+          wrap.dataset.providerKind = provider.kind || "Usage";
+          wrap.innerHTML = `<input type="checkbox" data-provider-check="${id}"><span>${label}</span>`;
+          checkHost.appendChild(wrap);
+        });
+      }
+      renderProviderChecks();
+      /*
+       * The backend may add a provider label or kind later. Keep the control
+       * list data-driven while preserving the stable seven IDs above.
+       */
+      function syncProviderChecks(providers) {
+        renderProviderChecks(providers);
+        (providers || []).forEach((provider) => {
+          const input = checkHost.querySelector(`[data-provider-check="${provider.id}"]`);
+          const label = input?.parentElement?.querySelector("span");
+          if (label) label.textContent = provider.label || provider.name || provider.id;
+          if (input?.parentElement) input.parentElement.dataset.providerKind = provider.kind || "Usage";
+        });
+      }
+      checkHost.addEventListener("change", () => {
+        const enabled = [...checkHost.querySelectorAll("[data-provider-check]")].filter((c) => c.checked).map((c) => c.dataset.providerCheck);
+        invoke("set_enabled_providers", { providers: enabled }).catch(() => setStatus("Deixe ao menos um provider ativo"));
+      });
+
+      document.getElementById("open-mesh-button")?.addEventListener("click", () => invoke("open_agentmesh_dashboard"));
+
+      document.addEventListener("codenotch:state", (event) => {
+        const state = event.detail || {};
+        const theme = state.theme || window.MeshNotchTheme?.effectiveTheme();
+        updateModes(theme === "system" ? "system" : theme);
+        if (state.scale) {
+          document.getElementById("scale-control").value = state.scale;
+          document.getElementById("scale-value").textContent = `${Math.round(state.scale * 100)}%`;
+        }
+        if (state.accent) updateAccent(state.accent);
+        if (state.orientation) updateOrientation(state.orientation);
+        if (state.notch_style) updateStyle(state.notch_style);
+        if (Array.isArray(state.enabled_providers)) {
+          checkHost.querySelectorAll("[data-provider-check]").forEach((c) => { c.checked = state.enabled_providers.includes(c.dataset.providerCheck); });
+        }
+        if (Array.isArray(state.providers)) syncProviderChecks(state.providers);
+        const mesh = state.agentmesh;
+        const dot = document.getElementById("mesh-status-dot");
+        const text = document.getElementById("mesh-status-text");
+        if (mesh && mesh.connected) {
+          dot.dataset.connected = "true";
+          text.textContent = `Conectado na porta ${mesh.port} · ${mesh.total_agents} agente(s), ${mesh.processing_agents} processando`;
+        } else if (mesh && mesh.port) {
+          dot.dataset.connected = "false";
+          text.textContent = `Porta ${mesh.port} respondeu mas os dados falharam`;
+        } else {
+          dot.dataset.connected = "false";
+          text.textContent = "AgentMesh não encontrado (rode 'agentmesh serve' localmente)";
+        }
+      });
+      document.addEventListener("codenotch:theme", (event) => updateModes(event.detail));
+      document.addEventListener("codenotch:scale", (event) => {
+        const scale = Number(event.detail);
+        if (!Number.isNaN(scale)) document.getElementById("scale-value").textContent = `${Math.round(scale * 100)}%`;
+      });
+
+      invoke("autostart_status").then((enabled) => { document.getElementById("autostart-control").checked = Boolean(enabled); });
+      invoke("linux_probe").then((probe) => { document.getElementById("probe-status").textContent = probe || "Diagnóstico indisponível"; });
+    })();
+  </script>
+</body>
+</html>

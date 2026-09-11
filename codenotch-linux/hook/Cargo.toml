@@ -1,0 +1,9 @@
+[package]
+name = "meshnotch-hook"
+version = "0.1.0"
+edition = "2021"
+description = "Tiny Claude Code hook client for MeshNotch"
+license = "MIT"
+
+[dependencies]
+dirs = "5"

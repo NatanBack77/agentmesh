@@ -2,3 +2,5 @@
 /dist/
 *.log
 .agentmesh/
+.maestri/
+.playwright-cli/

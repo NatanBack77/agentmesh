@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101014">
+  <title>MeshNotch · Notch</title>
+  <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 26 26"><circle cx="13" cy="5" r="3" fill="%230a84ff"/><circle cx="5" cy="19" r="3" fill="%23af52de"/><circle cx="21" cy="19" r="3" fill="%23ff9500"/></svg>'>
+  <script>
+    (() => {
+      try {
+        const theme = localStorage.getItem("codenotch.theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="./theme.css">
+  <style>
+    body { background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="notch-column" id="notch-column">
+    <div class="notch-body glass" id="notch-body" data-style="solid" aria-label="MeshNotch" role="group">
+      <div class="ring-item">
+        <button class="ring" type="button" data-provider="claude" data-status="absent" aria-label="Claude">
+          <svg viewBox="0 0 34 34" aria-hidden="true">
+            <circle class="ring-track" cx="17" cy="17" r="14"></circle>
+            <circle class="ring-fill" cx="17" cy="17" r="14" style="--ring-color:#d97757; stroke-dasharray:88; stroke-dashoffset:88;"></circle>
+            <circle class="ring-week-track" cx="17" cy="17" r="10"></circle>
+            <circle class="ring-week-fill" cx="17" cy="17" r="10" style="--ring-color:#d97757; stroke-dasharray:63; stroke-dashoffset:63;"></circle>
+          </svg>
+          <span class="ring-glyph" aria-hidden="true">
+            <svg viewBox="-5 -5 110 110" fill="currentColor" fill-rule="evenodd">
+              <path d="M28.79,1.08 L26.67,2.23 L24.23,5.16 L24.27,8.73 L26.11,12.75 L34.25,26.06 L38.79,34.74 L38.88,36.70 L36.95,36.43 L20.14,23.51 L18.78,22.00 L15.52,19.98 L12.53,19.50 L11.11,19.95 L8.77,22.58 L8.87,25.65 L9.53,27.14 L11.80,29.61 L16.61,32.84 L17.91,34.26 L29.65,41.55 L30.95,42.97 L39.40,48.03 L39.74,49.46 L37.67,50.04 L21.77,48.30 L4.04,47.41 L1.86,48.08 L1.29,49.90 L2.76,52.45 L6.49,53.75 L38.01,54.49 L39.43,54.88 L39.79,55.74 L37.73,58.00 L31.30,61.16 L25.89,64.70 L23.41,65.64 L13.60,72.09 L11.42,74.85 L11.49,76.81 L14.16,78.66 L19.12,77.87 L41.20,63.20 L42.70,62.88 L43.21,63.32 L42.92,64.54 L39.40,67.99 L34.28,75.30 L24.16,87.71 L23.34,90.73 L24.03,92.69 L25.58,93.36 L27.34,93.08 L34.31,86.18 L47.00,68.99 L48.07,66.67 L49.15,66.11 L50.01,66.69 L49.95,69.06 L44.74,95.69 L46.18,99.46 L49.01,100.70 L51.62,99.45 L52.28,98.33 L53.69,90.18 L55.20,71.09 L55.93,69.81 L58.14,70.96 L63.28,79.71 L72.27,92.42 L73.95,93.33 L76.62,93.15 L77.75,92.41 L78.30,91.06 L77.85,85.97 L68.82,72.38 L67.53,71.15 L67.65,69.56 L68.75,69.57 L72.52,73.39 L87.21,84.89 L88.42,85.15 L89.59,84.68 L90.38,83.73 L90.46,82.56 L85.30,76.62 L69.84,62.69 L67.75,60.16 L67.78,59.33 L68.85,59.08 L81.06,62.47 L94.40,65.33 L97.82,64.67 L100.94,61.85 L99.68,59.27 L96.37,56.47 L87.43,55.99 L83.32,55.28 L74.69,55.29 L72.52,54.75 L71.38,53.82 L71.74,52.99 L73.08,52.44 L97.72,47.40 L99.04,46.55 L99.85,45.14 L100.37,43.24 L100.01,41.83 L98.89,41.07 L96.16,40.64 L86.04,42.00 L75.78,43.94 L71.64,45.23 L70.10,44.68 L73.91,37.69 L86.19,22.07 L87.33,17.49 L86.78,15.20 L85.28,13.31 L83.38,12.17 L81.69,12.15 L78.88,13.13 L71.99,20.07 L62.24,32.90 L60.34,35.17 L59.41,35.41 L58.78,34.48 L58.75,32.85 L62.49,17.13 L63.78,7.44 L62.53,4.30 L60.43,2.57 L58.90,2.65 L56.61,4.63 L54.71,8.05 L53.69,22.79 L52.59,28.77 L52.23,34.61 L51.65,37.30 L50.80,37.86 L47.28,29.09 L39.41,14.09 L36.47,6.45 L34.39,2.82 L33.05,1.83 L30.13,0.95 L28.80,1.08 Z"/>
+            </svg>
+          </span>
+        </button>
+        <span class="ring-pct"><strong id="pct-claude-session">--</strong><small id="pct-claude-week"> / --</small></span>
+      </div>
+      <div class="ring-item">
+        <button class="ring" type="button" data-provider="codex" data-status="absent" aria-label="Codex">
+          <svg viewBox="0 0 34 34" aria-hidden="true">
+            <circle class="ring-track" cx="17" cy="17" r="14"></circle>
+            <circle class="ring-fill" cx="17" cy="17" r="14" style="--ring-color:#10a37f; stroke-dasharray:88; stroke-dashoffset:88;"></circle>
+            <circle class="ring-week-track" cx="17" cy="17" r="10"></circle>
+            <circle class="ring-week-fill" cx="17" cy="17" r="10" style="--ring-color:#10a37f; stroke-dasharray:63; stroke-dashoffset:63;"></circle>
+          </svg>
+          <span class="ring-glyph" aria-hidden="true">
+            <svg viewBox="-5 -5 110 110" fill="currentColor" fill-rule="evenodd">
+              <path d="M42.34,-2.72 L35.41,-1.87 L30.13,0.40 L24.22,4.95 L20.12,10.69 L18.23,14.55 L14.35,16.61 L11.04,17.56 L4.68,22.32 L0.13,28.63 L-2.16,34.30 L-2.75,41.47 L-2.12,48.00 L0.21,53.54 L3.80,58.97 L2.71,63.02 L2.42,66.34 L2.81,71.23 L4.53,76.86 L8.89,83.76 L11.31,86.38 L18.23,90.74 L24.13,92.66 L30.60,93.00 L33.46,92.64 L35.16,93.07 L40.21,97.10 L42.98,98.08 L45.62,99.73 L52.34,100.93 L57.85,100.94 L64.68,99.24 L71.48,95.13 L77.72,88.32 L80.42,83.03 L83.65,82.05 L88.21,79.75 L94.58,74.49 L97.40,70.75 L99.57,66.27 L100.95,59.68 L100.90,54.79 L99.45,47.64 L94.51,39.70 L95.51,33.53 L95.16,26.07 L92.95,19.97 L88.36,13.29 L82.79,9.00 L78.54,6.79 L71.09,5.32 L64.10,5.90 L60.09,2.43 L56.58,0.21 L53.25,-0.75 L51.38,-1.92 L42.37,-2.73 Z M59.15,61.93 L60.03,61.98 L60.51,62.94 L60.65,69.87 L60.30,70.94 L57.91,73.11 L54.93,74.34 L49.91,77.68 L47.55,78.56 L38.03,84.23 L31.01,86.17 L26.39,86.07 L21.01,84.47 L16.02,81.26 L13.32,78.24 L10.99,74.56 L9.66,68.58 L9.71,65.32 L10.28,64.39 L12.53,64.83 L15.29,66.79 L17.98,67.72 L23.00,71.11 L25.79,72.11 L30.71,75.54 L33.59,76.01 L35.30,75.54 L59.13,61.94 Z M15.49,23.37 L16.61,23.62 L17.13,25.20 L17.40,48.90 L24.43,53.83 L38.15,60.98 L39.78,62.61 L42.44,63.56 L42.84,64.78 L42.03,66.16 L36.91,69.10 L35.09,69.50 L33.14,69.10 L31.49,67.70 L20.11,61.18 L17.87,60.39 L11.48,56.18 L6.96,51.26 L4.63,46.73 L4.13,42.22 L4.28,37.13 L6.61,31.21 L10.72,26.34 L13.40,24.22 L15.49,23.37 Z M65.95,45.90 L67.35,46.07 L73.35,50.02 L74.09,51.12 L74.07,76.73 L73.35,81.19 L69.07,88.31 L66.28,90.73 L61.93,92.93 L56.83,94.10 L48.61,93.39 L43.46,91.06 L42.83,89.98 L43.30,89.14 L46.06,87.24 L55.77,82.12 L57.41,80.71 L59.75,79.86 L61.23,78.54 L63.47,77.51 L64.75,76.04 L65.25,73.61 L65.13,47.38 L65.92,45.91 Z M42.01,4.07 L49.01,4.54 L54.15,6.77 L54.85,8.25 L53.60,10.08 L50.91,11.12 L45.89,14.56 L35.63,19.87 L32.90,22.58 L32.75,50.24 L32.33,51.61 L31.35,52.08 L30.39,51.83 L28.81,50.27 L26.18,49.35 L23.79,46.71 L23.77,22.59 L24.19,18.78 L26.23,13.76 L30.41,8.83 L33.13,6.68 L37.13,4.82 L41.97,4.07 Z M67.93,12.23 L71.57,12.31 L76.41,13.28 L80.47,15.61 L82.76,17.68 L86.25,22.33 L88.07,26.86 L88.76,31.90 L88.31,33.76 L86.96,33.99 L82.90,32.06 L78.08,28.71 L75.55,27.71 L70.28,24.32 L64.91,21.98 L60.10,24.20 L39.50,36.09 L37.70,35.87 L37.53,28.36 L38.55,26.37 L61.09,13.54 L67.93,12.23 Z M61.68,28.53 L63.69,28.62 L85.93,41.28 L90.80,46.16 L92.90,49.72 L94.05,56.90 L93.06,64.10 L90.50,68.76 L85.50,73.54 L82.03,74.67 L81.06,73.81 L81.05,51.66 L80.03,48.34 L70.40,42.93 L68.83,41.55 L66.61,40.77 L54.69,34.01 L55.06,32.60 L60.01,29.99 L61.68,28.53 Z M47.79,36.68 L51.39,37.13 L56.50,40.61 L59.17,41.64 L60.23,42.90 L60.61,44.82 L60.32,55.43 L56.31,58.21 L49.22,61.55 L48.06,61.45 L41.34,58.01 L38.27,55.53 L37.49,53.04 L37.47,44.80 L38.21,42.43 L47.78,36.68 Z"/>
+            </svg>
+          </span>
+        </button>
+        <span class="ring-pct"><strong id="pct-codex-session">--</strong><small id="pct-codex-week"> / --</small></span>
+      </div>
+      <div class="ring-item">
+        <button class="ring" type="button" data-provider="cursor" data-status="absent" aria-label="Cursor">
+          <svg viewBox="0 0 34 34" aria-hidden="true">
+            <circle class="ring-track" cx="17" cy="17" r="14"></circle>
+            <circle class="ring-fill" cx="17" cy="17" r="14" style="--ring-color:#8e8e93; stroke-dasharray:88; stroke-dashoffset:88;"></circle>
+            <circle class="ring-week-track" cx="17" cy="17" r="10"></circle>
+            <circle class="ring-week-fill" cx="17" cy="17" r="10" style="--ring-color:#8e8e93; stroke-dasharray:63; stroke-dashoffset:63;"></circle>
+          </svg>
+          <span class="ring-glyph" aria-hidden="true">
+            <svg viewBox="-5 -5 110 110" fill="currentColor" fill-rule="evenodd">
+              <path d="M92.11,23.67 L52.08,0.56 L51.92,0.48 L51.76,0.39 L51.60,0.32 L51.43,0.26 L51.25,0.20 L51.08,0.15 L50.90,0.10 L50.73,0.07 L50.55,0.04 L50.37,0.02 L50.19,0.01 L50.00,0.01 L49.82,0.01 L49.64,0.02 L49.46,0.04 L49.28,0.07 L49.10,0.10 L48.93,0.15 L48.75,0.20 L48.58,0.26 L48.41,0.32 L48.25,0.39 L48.08,0.48 L47.93,0.56 L7.89,23.67 L7.76,23.75 L7.63,23.83 L7.51,23.92 L7.39,24.02 L7.27,24.12 L7.16,24.22 L7.06,24.33 L6.96,24.45 L6.86,24.57 L6.77,24.69 L6.69,24.82 L6.61,24.95 L6.54,25.08 L6.47,25.22 L6.41,25.36 L6.35,25.50 L6.30,25.64 L6.26,25.79 L6.23,25.94 L6.20,26.09 L6.17,26.24 L6.16,26.39 L6.15,26.54 L6.14,26.69 L6.14,73.30 L6.15,73.49 L6.16,73.67 L6.19,73.85 L6.22,74.04 L6.26,74.21 L6.31,74.39 L6.38,74.56 L6.45,74.73 L6.52,74.89 L6.61,75.05 L6.71,75.20 L6.81,75.35 L6.92,75.50 L7.04,75.64 L7.16,75.77 L7.29,75.89 L7.43,76.01 L7.58,76.13 L7.73,76.23 L7.89,76.33 L47.92,99.44 L48.08,99.53 L48.24,99.61 L48.41,99.68 L48.58,99.75 L48.75,99.81 L48.92,99.86 L49.10,99.90 L49.28,99.94 L49.46,99.96 L49.64,99.98 L49.82,99.99 L50.00,100.00 L50.18,99.99 L50.36,99.98 L50.54,99.96 L50.72,99.94 L50.90,99.90 L51.08,99.86 L51.25,99.81 L51.42,99.75 L51.59,99.68 L51.76,99.61 L51.92,99.53 L52.08,99.44 L92.11,76.33 L92.24,76.25 L92.37,76.17 L92.49,76.07 L92.61,75.98 L92.73,75.88 L92.84,75.77 L92.94,75.66 L93.04,75.55 L93.14,75.43 L93.23,75.31 L93.31,75.18 L93.39,75.05 L93.47,74.92 L93.53,74.78 L93.60,74.64 L93.65,74.50 L93.70,74.35 L93.74,74.21 L93.78,74.06 L93.81,73.91 L93.83,73.76 L93.85,73.60 L93.86,73.45 L93.86,73.30 L93.86,26.70 L93.86,26.54 L93.85,26.39 L93.83,26.24 L93.81,26.09 L93.78,25.94 L93.74,25.79 L93.70,25.65 L93.65,25.50 L93.59,25.36 L93.53,25.22 L93.47,25.08 L93.39,24.95 L93.31,24.82 L93.23,24.69 L93.14,24.57 L93.04,24.45 L92.94,24.34 L92.84,24.23 L92.73,24.12 L92.61,24.02 L92.49,23.92 L92.37,23.83 L92.24,23.75 L92.11,23.67 Z M89.60,28.57 L50.95,95.50 L50.91,95.56 L50.86,95.62 L50.81,95.66 L50.75,95.70 L50.69,95.72 L50.63,95.74 L50.57,95.75 L50.50,95.75 L50.44,95.75 L50.38,95.74 L50.32,95.72 L50.26,95.69 L50.20,95.66 L50.16,95.62 L50.11,95.57 L50.07,95.52 L50.04,95.46 L50.02,95.39 L50.01,95.32 L50.00,95.25 L50.00,51.42 L50.00,51.31 L49.99,51.20 L49.98,51.10 L49.96,50.99 L49.94,50.89 L49.92,50.78 L49.89,50.68 L49.85,50.58 L49.81,50.48 L49.77,50.38 L49.72,50.28 L49.67,50.19 L49.61,50.10 L49.55,50.01 L49.49,49.92 L49.42,49.84 L49.35,49.76 L49.28,49.68 L49.20,49.61 L49.12,49.54 L49.04,49.47 L48.95,49.41 L48.86,49.35 L48.77,49.29 L10.81,27.37 L10.75,27.33 L10.70,27.29 L10.65,27.23 L10.62,27.18 L10.59,27.12 L10.57,27.06 L10.56,26.99 L10.56,26.93 L10.57,26.87 L10.58,26.80 L10.60,26.74 L10.63,26.69 L10.66,26.63 L10.70,26.58 L10.75,26.54 L10.80,26.50 L10.86,26.47 L10.93,26.44 L11.00,26.43 L11.07,26.43 L88.36,26.43 L88.52,26.43 L88.68,26.46 L88.83,26.50 L88.97,26.56 L89.10,26.63 L89.22,26.71 L89.33,26.80 L89.43,26.91 L89.52,27.02 L89.60,27.14 L89.66,27.27 L89.72,27.40 L89.76,27.54 L89.78,27.69 L89.79,27.83 L89.78,27.98 L89.76,28.13 L89.72,28.28 L89.67,28.42 L89.60,28.57 Z"/>
+            </svg>
+          </span>
+        </button>
+        <span class="ring-pct"><strong id="pct-cursor-session">--</strong><small id="pct-cursor-week"> / --</small></span>
+      </div>
+      <button class="mesh-chip" type="button" id="mesh-chip" data-attention="false" aria-label="AgentMesh" hidden>
+        <span id="mesh-count">0</span>
+        <span class="dot" aria-hidden="true"></span>
+      </button>
+    </div>
+    <button class="orb" type="button" id="settings-orb" aria-label="Abrir configurações">
+      <svg class="orb-arc" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 15a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>
+      <svg class="orb-gear" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" stroke="currentColor" stroke-width="1.6"></path>
+        <path d="M19.4 13.5a1.8 1.8 0 0 0 .36 1.98l.06.06a2.18 2.18 0 1 1-3.08 3.08l-.06-.06a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.09 1.65v.17a2.18 2.18 0 1 1-4.36 0v-.09a1.8 1.8 0 0 0-1.18-1.65 1.8 1.8 0 0 0-1.98.36l-.06.06a2.18 2.18 0 1 1-3.08-3.08l.06-.06a1.8 1.8 0 0 0 .36-1.98 1.8 1.8 0 0 0-1.65-1.09h-.17a2.18 2.18 0 1 1 0-4.36h.09a1.8 1.8 0 0 0 1.65-1.18 1.8 1.8 0 0 0-.36-1.98l-.06-.06a2.18 2.18 0 1 1 3.08-3.08l.06.06a1.8 1.8 0 0 0 1.98.36h.09a1.8 1.8 0 0 0 1.09-1.65v-.17a2.18 2.18 0 1 1 4.36 0v.09a1.8 1.8 0 0 0 1.09 1.65h.09a1.8 1.8 0 0 0 1.98-.36l.06-.06a2.18 2.18 0 1 1 3.08 3.08l-.06.06a1.8 1.8 0 0 0-.36 1.98v.09a1.8 1.8 0 0 0 1.65 1.09h.17a2.18 2.18 0 1 1 0 4.36h-.09a1.8 1.8 0 0 0-1.65 1.09Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path>
+      </svg>
+    </button>
+  </div>
+
+  <div class="ring-tooltip" id="ring-tooltip" role="tooltip"></div>
+
+  <script src="./theme.js"></script>
+  <script>
+    (() => {
+      const invoke = (command, payload) => window.MeshNotchTheme?.invoke(command, payload) || Promise.resolve(null);
+      const notchColumn = document.getElementById("notch-column");
+      const notchBody = document.getElementById("notch-body");
+      const tooltip = document.getElementById("ring-tooltip");
+      let rings = [...document.querySelectorAll(".ring")];
+      const meshChip = document.getElementById("mesh-chip");
+      const meshCount = document.getElementById("mesh-count");
+      const RING_CIRCUMFERENCE = 88;
+
+      const PROVIDER_NAME = {
+        claude: "Claude", codex: "Codex", cursor: "Cursor",
+        ollama: "Ollama", lmstudio: "LM Studio", "gemini-cli": "Gemini CLI", opencode: "OpenCode"
+      };
+      const PROVIDER_COLORS = {
+        claude: "#d97757", codex: "#10a37f", cursor: "#8e8e93",
+        ollama: "#c5f74f", lmstudio: "#a78bfa", "gemini-cli": "#5b8cff", opencode: "#f4f4f5"
+      };
+      const PROVIDER_GLYPHS = {
+        ollama: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 7.5c0-2 2.7-3.5 6-3.5s6 1.5 6 3.5v4.2c0 2.1-2.7 3.8-6 3.8s-6-1.7-6-3.8V7.5Z" stroke="currentColor" stroke-width="1.7"/><path d="M6 8c0 2 2.7 3.5 6 3.5S18 10 18 8M8.5 17.5c1.1 1.3 2.3 2 3.5 2s2.4-.7 3.5-2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
+        lmstudio: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4" stroke="currentColor" stroke-width="1.7"/><path d="M8 16V8l4 5 4-5v8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        "gemini-cli": '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2Zm6.1 13.5.8 2.6 2.6.8-2.6.8-.8 2.6-.8-2.6-2.6-.8 2.6-.8.8-2.6Z"/></svg>',
+        opencode: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 6-6 6 6 6M15 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      };
+      let latestState = { providers: [], sessions: [], enabled_providers: ["claude", "codex", "cursor"], agentmesh: { connected: false, quotas: [] } };
+      let openTooltipFor = null;
+      let dragArmed = false;
+      const WEEK_CIRCUMFERENCE = 63;
+
+      function runtimeGlyph(id) {
+        return PROVIDER_GLYPHS[id] || '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1.7"/></svg>';
+      }
+
+      function addProviderRing(provider) {
+        if (!provider?.id || notchBody.querySelector(`.ring[data-provider="${provider.id}"]`)) return;
+        const item = document.createElement("div");
+        item.className = "ring-item";
+        item.dataset.provider = provider.id;
+        const color = PROVIDER_COLORS[provider.id] || "#0a84ff";
+        item.innerHTML = `
+          <button class="ring" type="button" data-provider="${provider.id}" data-status="absent" aria-label="${provider.label || provider.name || provider.id}">
+            <svg viewBox="0 0 34 34" aria-hidden="true">
+              <circle class="ring-track" cx="17" cy="17" r="14"></circle>
+              <circle class="ring-fill" cx="17" cy="17" r="14" style="--ring-color:${color}; stroke-dasharray:88; stroke-dashoffset:88;"></circle>
+              <circle class="ring-week-track" cx="17" cy="17" r="10"></circle>
+              <circle class="ring-week-fill" cx="17" cy="17" r="10" style="--ring-color:${color}; stroke-dasharray:63; stroke-dashoffset:63;"></circle>
+            </svg>
+            <span class="ring-glyph" aria-hidden="true">${runtimeGlyph(provider.id)}</span>
+          </button>
+          ${provider.kind === "LocalRuntime" ? '<span class="runtime-state"><i aria-hidden="true"></i><small>OFF</small></span>' : `<span class="ring-pct"><strong id="pct-${provider.id}-session">--</strong><small id="pct-${provider.id}-week"> / --</small></span>`}`;
+        notchBody.insertBefore(item, meshChip);
+        const button = item.querySelector(".ring");
+        rings.push(button);
+        bindRing(button);
+      }
+
+      function syncProviderRings() {
+        (latestState.providers || []).forEach(addProviderRing);
+      }
+
+      function formatResetsAt(ms) {
+        if (!ms) return null;
+        const diff = ms - Date.now();
+        if (diff <= 0) return "resetando agora";
+        const minutes = Math.round(diff / 60000);
+        if (minutes < 60) return `Resets in ${minutes} min`;
+        const hours = Math.round(minutes / 60);
+        if (hours < 48) return `Resets in ${hours}h`;
+        const days = Math.round(hours / 24);
+        return `Resets in ${days}d`;
+      }
+
+      function formatReset(value) {
+        if (!value) return null;
+        const parsed = typeof value === "number"
+          ? (value < 100000000000 ? value * 1000 : value)
+          : Date.parse(value);
+        return Number.isFinite(parsed) ? formatResetsAt(parsed) : null;
+      }
+
+      function clampPct(value) {
+        return typeof value === "number" && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : null;
+      }
+
+      function quotaFor(providerId, provider) {
+        const mesh = latestState.agentmesh;
+        if (mesh?.connected) {
+          const quota = (mesh.quotas || []).find((item) => item.provider === providerId);
+          if (!quota || !quota.available) return { source: "agentmesh", unavailable: true, error: quota?.error || "Quota indisponível" };
+          return {
+            source: "agentmesh",
+            sessionPct: clampPct(quota.session_pct),
+            weekPct: clampPct(quota.week_pct),
+            sessionReset: formatReset(quota.session_resets_at),
+            weekReset: formatReset(quota.week_resets_at),
+            planType: quota.plan_type || ""
+          };
+        }
+
+        const windows = provider?.windows || [];
+        const session = windows[0];
+        const week = windows[1];
+        return {
+          source: "local",
+          sessionPct: typeof session?.used === "number" ? clampPct(session.used * 100) : null,
+          weekPct: typeof week?.used === "number" ? clampPct(week.used * 100) : null,
+          sessionReset: formatReset(session?.resets_at),
+          weekReset: formatReset(week?.resets_at),
+          planType: ""
+        };
+      }
+
+      function sessionState(providerId) {
+        const sessions = (latestState.sessions || []).filter((s) => s.provider === providerId);
+        if (sessions.some((s) => s.state === "busy")) return "busy";
+        if (sessions.some((s) => s.state === "waiting")) return "waiting";
+        if (sessions.length) return "done";
+        return "idle";
+      }
+
+      function paintRing(button) {
+        const providerId = button.dataset.provider;
+        const item = button.closest(".ring-item");
+        const enabled = (latestState.enabled_providers || []).includes(providerId);
+        if (item) item.hidden = !enabled;
+        if (!enabled) return;
+
+        const provider = (latestState.providers || []).find((p) => p.id === providerId);
+        if (provider?.kind === "LocalRuntime") {
+          item?.classList.add("local-runtime");
+          const runtimeState = item?.querySelector(".runtime-state");
+          const active = Boolean(provider.running);
+          button.dataset.status = provider.status || (active ? "running" : provider.available ? "available" : "absent");
+          button.title = provider.note || (active ? `${provider.label || provider.name} running` : provider.available ? `${provider.label || provider.name} disponível` : `${provider.label || provider.name} indisponível`);
+          if (runtimeState) {
+            runtimeState.classList.toggle("is-running", active);
+            runtimeState.querySelector("small").textContent = active ? "ON" : provider.available ? "READY" : "OFF";
+          }
+          if (openTooltipFor === providerId) renderTooltip(providerId, button);
+          return;
+        }
+        item?.classList.remove("local-runtime");
+        const fill = button.querySelector(".ring-fill");
+        const weekFill = button.querySelector(".ring-week-fill");
+        const quota = quotaFor(providerId, provider);
+        const sessionPct = quota.sessionPct ?? 0;
+        const weekPct = quota.weekPct ?? 0;
+        fill.style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - sessionPct / 100));
+        weekFill.style.strokeDashoffset = String(WEEK_CIRCUMFERENCE * (1 - weekPct / 100));
+        const sessionLabel = document.getElementById(`pct-${providerId}-session`);
+        const weekLabel = document.getElementById(`pct-${providerId}-week`);
+        if (sessionLabel) sessionLabel.textContent = quota.sessionPct == null ? "--" : `${Math.round(sessionPct)}%`;
+        if (weekLabel) weekLabel.textContent = quota.weekPct == null ? " / --" : ` / ${Math.round(weekPct)}%`;
+        button.dataset.quotaSource = quota.source;
+        button.dataset.quotaUnavailable = String(Boolean(quota.unavailable));
+
+        const activity = sessionState(providerId);
+        const status = provider && provider.status !== "ok" && provider.status !== "absent" ? provider.status : activity;
+        button.dataset.status = status;
+        button.title = provider?.note || provider?.name || providerId;
+        if (openTooltipFor === providerId) renderTooltip(providerId, button);
+      }
+
+      function usageBlock(w) {
+        const pct = Math.round((w.used || 0) * 100);
+        const resets = formatResetsAt(w.resets_at) || "";
+        const barColor = pct >= 90 ? "#ff453a" : pct >= 60 ? "#ff9f0a" : "#32d74b";
+        return `
+          <div class="usage-block">
+            <div class="usage-row"><span>${w.label || w.id}</span><strong>${resets}</strong></div>
+            <div class="usage-bar"><span style="width:${pct}%; --bar-color:${barColor}"></span></div>
+            <div class="usage-pct">${pct}% Used</div>
+          </div>`;
+      }
+
+      function quotaBlock(quota) {
+        if (quota.unavailable) return `<p class="empty-note">${quota.error}</p>`;
+        const session = Math.round(quota.sessionPct || 0);
+        const week = Math.round(quota.weekPct || 0);
+        const sessionColor = session >= 90 ? "#ff453a" : session >= 60 ? "#ff9f0a" : "#32d74b";
+        const weekColor = week >= 90 ? "#ff453a" : week >= 60 ? "#ff9f0a" : "#64d2ff";
+        const plan = quota.planType ? `<span class="quota-plan">${quota.planType}</span>` : "";
+        return `
+          <div class="quota-source">AgentMesh${plan}</div>
+          <div class="usage-block">
+            <div class="usage-row"><span>Sessão</span><strong>${quota.sessionReset || "sem reset"}</strong></div>
+            <div class="usage-bar"><span style="width:${session}%; --bar-color:${sessionColor}"></span></div>
+            <div class="usage-pct">${session}% usado</div>
+          </div>
+          <div class="usage-block">
+            <div class="usage-row"><span>Semana</span><strong>${quota.weekReset || "sem reset"}</strong></div>
+            <div class="usage-bar"><span style="width:${week}%; --bar-color:${weekColor}"></span></div>
+            <div class="usage-pct">${week}% usado</div>
+          </div>`;
+      }
+
+      function runtimeBlock(provider) {
+        const label = provider?.label || provider?.name || provider?.id || "Runtime";
+        const state = provider?.running ? "Rodando" : provider?.available ? "Disponível" : "Indisponível";
+        const note = provider?.note || (provider?.running ? "Processo detectado" : "Nenhum processo detectado");
+        return `<div class="runtime-tooltip-state"><i class="${provider?.running ? "is-running" : ""}"></i><strong>${state}</strong></div><p class="empty-note">${label}: ${note}</p>`;
+      }
+
+      function renderTooltip(providerId, button) {
+        const provider = (latestState.providers || []).find((p) => p.id === providerId);
+        const sessions = (latestState.sessions || []).filter((s) => s.provider === providerId);
+        const quota = quotaFor(providerId, provider);
+        const name = PROVIDER_NAME[providerId] || provider?.name || providerId;
+        const glyph = button.querySelector(".ring-glyph")?.innerHTML || "";
+        const ringColor = getComputedStyle(button.querySelector(".ring-fill")).getPropertyValue("--ring-color") || "#0a84ff";
+
+        const body = provider?.kind === "LocalRuntime"
+          ? runtimeBlock(provider)
+          : quota.source === "agentmesh"
+          ? quotaBlock(quota)
+          : (provider?.windows || []).length
+          ? provider.windows.map(usageBlock).join("")
+          : `<p class="empty-note">${provider?.note || "Sem dados de uso ainda"}</p>`;
+
+        const sessionHtml = sessions.length
+          ? `<div class="session-row">${sessions[0].state} · ${sessions[0].prompt || sessions[0].cwd || sessions[0].id}</div>`
+          : "";
+
+        const usageTitle = provider?.kind === "LocalRuntime" ? "Runtime" : "Usage";
+        tooltip.innerHTML = `
+          <div class="ring-tooltip-head">
+            <span class="ring-tooltip-glyph" style="--ring-color:${ringColor}">${glyph}</span>
+            <h3>${name} ${usageTitle}</h3>
+          </div>
+          ${body}${sessionHtml}`;
+
+        const rect = button.getBoundingClientRect();
+        const horizontal = document.documentElement.dataset.orientation === "horizontal";
+        if (horizontal) {
+          tooltip.style.top = `${rect.bottom}px`;
+          tooltip.style.left = `${rect.left + rect.width / 2}px`;
+        } else {
+          tooltip.style.top = `${rect.top + rect.height / 2}px`;
+          tooltip.style.left = `${rect.left}px`;
+        }
+        tooltip.classList.add("is-visible");
+      }
+
+      function hideTooltip() {
+        openTooltipFor = null;
+        tooltip.classList.remove("is-visible");
+      }
+
+      function bindRing(button) {
+        button.addEventListener("pointerenter", () => {
+          if (button.hidden) return;
+          openTooltipFor = button.dataset.provider;
+          renderTooltip(button.dataset.provider, button);
+        });
+        button.addEventListener("pointerleave", () => {
+          if (openTooltipFor === button.dataset.provider) hideTooltip();
+        });
+        button.addEventListener("click", () => invoke("open_provider_page", { provider: button.dataset.provider }));
+        button.addEventListener("focus", () => {
+          if (button.hidden) return;
+          openTooltipFor = button.dataset.provider;
+          renderTooltip(button.dataset.provider, button);
+        });
+        button.addEventListener("blur", () => {
+          if (openTooltipFor === button.dataset.provider) hideTooltip();
+        });
+      }
+      rings.forEach(bindRing);
+
+      meshChip.addEventListener("click", () => invoke("open_agentmesh_dashboard"));
+
+      notchBody.addEventListener("pointerenter", () => notchBody.classList.add("is-open"));
+      notchBody.addEventListener("pointerleave", () => {
+        notchBody.classList.remove("is-open");
+        hideTooltip();
+      });
+
+      document.getElementById("settings-orb")?.addEventListener("click", () => invoke("open_settings"));
+
+      // Free dragging: pressing anywhere on the pill that isn't a button
+      // starts an OS-level interactive move (see drag_begin in main.rs).
+      notchColumn.addEventListener("pointerdown", (event) => {
+        if (event.target.closest("button")) return;
+        dragArmed = true;
+        invoke("drag_begin");
+      });
+      window.addEventListener("pointerup", () => { dragArmed = false; });
+
+      document.addEventListener("codenotch:state", (event) => {
+        latestState = event.detail || latestState;
+        syncProviderRings();
+        if (latestState.orientation) document.documentElement.dataset.orientation = latestState.orientation;
+        if (latestState.notch_style) notchBody.dataset.style = latestState.notch_style;
+        if (latestState.accent_color) document.documentElement.style.setProperty("--accent", latestState.accent_color);
+        rings.forEach(paintRing);
+
+        const mesh = latestState.agentmesh;
+        if (mesh && mesh.connected) {
+          meshChip.hidden = false;
+          meshCount.textContent = String(mesh.total_agents ?? 0);
+          meshChip.dataset.attention = String((mesh.needs_attention || 0) > 0);
+          meshChip.title = `AgentMesh: ${mesh.total_agents} agente(s), ${mesh.processing_agents} processando`;
+        } else {
+          meshChip.hidden = true;
+        }
+      });
+      document.addEventListener("codenotch:activity", () => invoke("get_state").then((state) => {
+        if (state) {
+          latestState = state;
+          rings.forEach(paintRing);
+        }
+      }));
+
+      const rect = () => {
+        const box = notchBody.getBoundingClientRect();
+        const orb = document.getElementById("settings-orb")?.getBoundingClientRect();
+        const boxes = [[box.x, box.y, box.width, box.height]];
+        if (orb) boxes.push([orb.x, orb.y, orb.width, orb.height]);
+        return boxes;
+      };
+      const sendHot = () => invoke("set_hot", { rects: rect(), expanded: notchBody.classList.contains("is-open") });
+      notchBody.addEventListener("pointerenter", sendHot);
+      notchBody.addEventListener("pointerleave", sendHot);
+      window.addEventListener("resize", sendHot);
+      sendHot();
+    })();
+  </script>
+</body>
+</html>
