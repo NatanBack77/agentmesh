@@ -1,5 +1,5 @@
 use crate::platform;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const APP_ICON: &[u8] = include_bytes!("../icons/icon.png");
@@ -58,18 +58,34 @@ fn write_entry() -> Result<(), String> {
     Ok(())
 }
 
+/// Extracts the path inside `Exec="<path>" %U` from a desktop entry body.
+fn exec_target(contents: &str) -> Option<&str> {
+    let line = contents.lines().find(|line| line.starts_with("Exec="))?;
+    let rest = line.strip_prefix("Exec=\"")?;
+    rest.split('"').next()
+}
+
 fn entry_needs_refresh(existing_contents: Option<&str>) -> bool {
     match existing_contents {
-        Some(contents) => !contents.contains("Keywords="),
+        Some(contents) => {
+            !contents.contains("Keywords=")
+                // Self-heal a stale Exec target: e.g. an AppImage first run from
+                // a temp/download mount whose path was later cleaned up, or the
+                // AppImage moved without using Settings -> Add to application
+                // menu. Without this the launcher entry stays permanently
+                // broken since nothing else ever rewrites it.
+                || exec_target(contents).is_some_and(|path| !Path::new(path).exists())
+        }
         None => true,
     }
 }
 
 /// Install on first launch, and migrate existing entries written before
-/// Keywords/StartupWMClass were added (older MeshNotch versions) so upgrading
-/// via auto-update also fixes search discoverability without a manual step.
-/// Otherwise keep the entry unchanged — a user's own edits, or a path
-/// refreshed from Settings, are left alone.
+/// Keywords/StartupWMClass were added (older MeshNotch versions), or whose
+/// Exec target no longer exists on disk, so upgrading via auto-update also
+/// fixes search discoverability and dangling launcher entries without a
+/// manual step. Otherwise keep the entry unchanged — a user's own edits are
+/// left alone.
 pub fn install_if_missing() -> Result<(), String> {
     let desktop_file = desktop_file_path()?;
     let existing = std::fs::read_to_string(&desktop_file).ok();
@@ -107,8 +123,30 @@ mod tests {
         assert!(entry_needs_refresh(Some(
             "[Desktop Entry]\nName=MeshNotch\nExec=/x %U\nIcon=meshnotch\n"
         )));
-        assert!(!entry_needs_refresh(Some(
-            "[Desktop Entry]\nName=MeshNotch\nKeywords=claude;codex;\n"
-        )));
+        let existing = format!(
+            "[Desktop Entry]\nName=MeshNotch\nKeywords=claude;codex;\nExec=\"{}\" %U\n",
+            std::env::current_exe().unwrap().display()
+        );
+        assert!(!entry_needs_refresh(Some(&existing)));
+    }
+
+    #[test]
+    fn refreshes_entries_whose_exec_target_no_longer_exists() {
+        use super::entry_needs_refresh;
+        // Regression test: a first launch from a temp AppImage mount/extraction
+        // (e.g. `--appimage-extract-and-run` on a FUSE-less system) or a moved
+        // AppImage leaves a dangling Exec path — the entry must self-heal
+        // instead of staying permanently broken.
+        let dangling = format!(
+            "[Desktop Entry]\nName=MeshNotch\nKeywords=claude;codex;\nExec=\"/tmp/does-not-exist-{}\" %U\n",
+            std::process::id()
+        );
+        assert!(entry_needs_refresh(Some(&dangling)));
+
+        let existing = format!(
+            "[Desktop Entry]\nName=MeshNotch\nKeywords=claude;codex;\nExec=\"{}\" %U\n",
+            std::env::current_exe().unwrap().display()
+        );
+        assert!(!entry_needs_refresh(Some(&existing)));
     }
 }
