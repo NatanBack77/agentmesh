@@ -52,9 +52,15 @@ jobs:
 
       - name: Build AppImage
         working-directory: codenotch-linux/app
-        # Signing happens later, after libwayland-* is stripped from the
-        # AppDir — signing the pre-strip artifact here would leave the
-        # final (repacked) AppImage with an invalid .sig.
+        # tauri.conf.json has an updater pubkey + createUpdaterArtifacts:
+        # true, so `cargo tauri build` hard-errors (not skips) without a
+        # private key — these secrets must stay here or the build fails.
+        # The .sig produced here is for the pre-strip artifact and gets
+        # overwritten by the "Sign AppImage" step below, after libwayland-*
+        # is stripped and the AppImage is re-packed.
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo tauri build --bundles appimage
 
       - name: Locate AppImage
