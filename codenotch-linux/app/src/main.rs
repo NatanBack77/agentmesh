@@ -145,6 +145,7 @@ fn place_notch(app: &AppHandle) {
 
 fn create_notch_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let window = WebviewWindowBuilder::new(app, "notch", WebviewUrl::App("notch.html".into()))
+        .title("MeshNotch")
         .inner_size(NOTCH_W_VERTICAL, NOTCH_H_VERTICAL)
         .transparent(true)
         .decorations(false)

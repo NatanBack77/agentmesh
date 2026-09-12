@@ -47,7 +47,7 @@ fn write_entry() -> Result<(), String> {
 
     let exec = platform::desktop_exec_arg(&executable);
     let body = format!(
-        "[Desktop Entry]\nVersion=1.0\nType=Application\nName=MeshNotch\nExec={exec} %U\nIcon=meshnotch\nCategories=Utility;\nTerminal=false\n"
+        "[Desktop Entry]\nVersion=1.0\nType=Application\nName=MeshNotch\nGenericName=AI Usage Monitor\nComment=Track Claude, Codex and Cursor usage from a notch on your screen\nExec={exec} %U\nIcon=meshnotch\nCategories=Utility;\nKeywords=claude;codex;cursor;agentmesh;usage;quota;notch;ai;\nStartupWMClass=MeshNotch\nTerminal=false\n"
     );
     std::fs::write(&desktop_file, body)
         .map_err(|error| format!("could not write application menu entry: {error}"))?;
@@ -80,10 +80,12 @@ mod tests {
     fn desktop_entry_has_expected_launcher_contract() {
         let exec = crate::platform::desktop_exec_arg(std::path::Path::new("/home/a user/MeshNotch.AppImage"));
         let entry = format!(
-            "[Desktop Entry]\nVersion=1.0\nType=Application\nName=MeshNotch\nExec={exec} %U\nIcon=meshnotch\nCategories=Utility;\nTerminal=false\n"
+            "[Desktop Entry]\nVersion=1.0\nType=Application\nName=MeshNotch\nGenericName=AI Usage Monitor\nComment=Track Claude, Codex and Cursor usage from a notch on your screen\nExec={exec} %U\nIcon=meshnotch\nCategories=Utility;\nKeywords=claude;codex;cursor;agentmesh;usage;quota;notch;ai;\nStartupWMClass=MeshNotch\nTerminal=false\n"
         );
         assert!(entry.contains("Exec=\"/home/a user/MeshNotch.AppImage\" %U"));
         assert!(entry.contains("Icon=meshnotch"));
         assert!(entry.contains("Categories=Utility;"));
+        assert!(entry.contains("Keywords=claude;codex;cursor;agentmesh;usage;quota;notch;ai;"));
+        assert!(entry.contains("StartupWMClass=MeshNotch"));
     }
 }

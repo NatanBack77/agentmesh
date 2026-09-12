@@ -57,6 +57,17 @@ application launcher. For an AppImage, the launcher points to the stable
 rename the AppImage, open Settings and use **Add to application menu** to
 refresh the launcher path.
 
+**Finding it faster**: the launcher entry (`~/.local/share/applications/
+meshnotch.desktop`) is tagged with search keywords (`claude`, `codex`,
+`cursor`, `agentmesh`, `usage`, `quota`, `notch`, `ai`), so typing any of
+those into KRunner (Alt+Space/Alt+F2 on KDE), GNOME Activities search, or
+your distro's app launcher finds MeshNotch even if you don't type its exact
+name. The notch window's title is `MeshNotch`, so it also shows up correctly
+by name in Alt+Tab / task switchers instead of a generic or blank entry.
+If you added MeshNotch before this fix and it still doesn't show up when
+searching, use **Add to application menu** in Settings to rewrite the
+launcher entry with the updated keywords.
+
 ## Build
 
 Install Rust and the Tauri Linux dependencies for your distro, including
