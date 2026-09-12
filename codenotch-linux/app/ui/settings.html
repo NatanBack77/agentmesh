@@ -261,6 +261,13 @@
           <button class="settings-button settings-button--destructive" id="quit-app-button" type="button">Sair do MeshNotch</button>
         </div>
       </div>
+      <div class="settings-row">
+        <div><strong>Menu de aplicativos</strong><small>Atualiza o atalho do MeshNotch neste usuário.</small></div>
+        <div class="settings-control">
+          <button class="settings-button" id="app-menu-button" type="button">Atualizar atalho</button>
+        </div>
+      </div>
+      <p class="settings-status" id="app-menu-status" role="status" aria-live="polite"></p>
     </section>
 
     <section class="settings-card surface-strong" aria-labelledby="updates-heading">
@@ -498,6 +505,22 @@
       });
 
       document.getElementById("open-mesh-button")?.addEventListener("click", () => invoke("open_agentmesh_dashboard"));
+
+      document.getElementById("app-menu-button")?.addEventListener("click", (event) => {
+        const button = event.currentTarget;
+        const appMenuStatus = document.getElementById("app-menu-status");
+        button.disabled = true;
+        button.textContent = "Atualizando...";
+        appMenuStatus.textContent = "Atualizando atalho do menu de aplicativos...";
+        invoke("add_to_app_menu").then(() => {
+          appMenuStatus.textContent = "Atalho atualizado no menu de aplicativos.";
+        }).catch(() => {
+          appMenuStatus.textContent = "Não foi possível atualizar o atalho do menu.";
+        }).finally(() => {
+          button.disabled = false;
+          button.textContent = "Atualizar atalho";
+        });
+      });
 
       document.getElementById("quit-app-button")?.addEventListener("click", (event) => {
         const button = event.currentTarget;

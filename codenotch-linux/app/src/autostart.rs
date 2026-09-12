@@ -1,4 +1,5 @@
 use crate::config;
+use crate::platform;
 use std::path::PathBuf;
 
 fn autostart_path() -> PathBuf {
@@ -13,14 +14,17 @@ pub fn is_enabled() -> bool {
 }
 
 pub fn enable() -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = platform::stable_exe_path();
+    if exe.as_os_str().is_empty() {
+        return Err("could not determine the MeshNotch executable path".into());
+    }
     let path = autostart_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let body = format!(
-        "[Desktop Entry]\nType=Application\nName=MeshNotch\nExec=\"{}\" --silent\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
-        exe.display()
+        "[Desktop Entry]\nType=Application\nName=MeshNotch\nExec={} --silent\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+        platform::desktop_exec_arg(&exe)
     );
     std::fs::write(&path, body).map_err(|e| e.to_string())?;
     Ok(format!("autostart enabled at {}", path.display()))

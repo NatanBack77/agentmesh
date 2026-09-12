@@ -53,7 +53,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE2NUZDRUQyNUYyMjMxOTEKUldTUk1TSmYwczVmRnJUWXozZFpjdElmaGhoVEpnUnhTZ09VQWZKOFN4VTJnaW1WL0xJTk03elYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY0NjM2MTczOUM3OTI0RTIKUldUaUpIbWNjMkZqOUgwVGMzRTRNRmlsYXQrS1Z0eHZhY3FlcUpaWHRNQ2xOQUp0ZlNNLzZzTlUK",
       "endpoints": [
         "https://github.com/NatanBack77/agentmesh/releases/latest/download/latest.json"
       ]

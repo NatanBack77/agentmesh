@@ -46,7 +46,16 @@ launch automatically on login (writes
 
 **Uninstalling**: quit the app, delete the AppImage file, and remove
 `~/.config/meshnotch/` and `~/.config/autostart/meshnotch.desktop` if you
-enabled autostart.
+enabled autostart. The application menu entry and icon are installed under
+`~/.local/share/applications/meshnotch.desktop` and
+`~/.local/share/icons/hicolor/32x32/apps/meshnotch.png`; remove those too if
+you want a complete uninstall.
+
+**Application menu**: on first launch, MeshNotch adds itself to the desktop
+application launcher. For an AppImage, the launcher points to the stable
+`.AppImage` path rather than its temporary mounted executable. If you move or
+rename the AppImage, open Settings and use **Add to application menu** to
+refresh the launcher path.
 
 ## Build
 
@@ -90,6 +99,18 @@ Store the contents of `~/.tauri/meshnotch.key` in the GitHub Actions secret
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Configure both secrets manually in the
 repository's GitHub Settings → Secrets and variables → Actions. Do not paste
 the private key into source files, workflow YAML, issues or chat logs.
+
+If a signing key or its password has been exposed, rotate the pair before the
+next signed release. Anyone holding the old private key must securely discard
+it; replace both GitHub Actions secrets with the new private key and its new
+password before publishing another signed release. The public key in
+`app/tauri.conf.json` must match that new pair.
+
+For this rotation, the new private key and its password are stored locally at
+`~/.tauri/meshnotch.key` and `~/.tauri/meshnotch.key.password` respectively.
+Update the Actions secrets directly from those files (without printing their
+contents) or paste them into GitHub's secret editor, then securely delete any
+obsolete private-key copies.
 
 To publish a release, update the version in `app/Cargo.toml` and
 `app/tauri.conf.json`, commit the change, then push a tag:

@@ -7,6 +7,7 @@ mod claude;
 mod codex;
 mod config;
 mod cursor;
+mod desktop_integration;
 mod local_runtime;
 mod platform;
 mod provider;
@@ -360,6 +361,11 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn add_to_app_menu() -> Result<(), String> {
+    desktop_integration::add_to_app_menu()
+}
+
 fn main() {
     let cfg = config::load();
     let port = cfg.port;
@@ -396,6 +402,7 @@ fn main() {
             reset_notch_position,
             open_agentmesh_dashboard,
             quit_app,
+            add_to_app_menu,
             app_updates::check_update,
             app_updates::download_update,
             app_updates::install_update,
@@ -404,6 +411,9 @@ fn main() {
         .setup(move |app| {
             app_updates::install_plugin(app.handle())?;
             let handle = app.handle().clone();
+            if let Err(error) = desktop_integration::install_if_missing() {
+                eprintln!("MeshNotch: could not install application menu entry: {error}");
+            }
             if let Err(error) = tray::setup(&handle) {
                 eprintln!("MeshNotch: tray unavailable; continuing without tray: {error}");
             }
