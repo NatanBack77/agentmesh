@@ -53,9 +53,14 @@ you want a complete uninstall.
 
 **Application menu**: on first launch, MeshNotch adds itself to the desktop
 application launcher. For an AppImage, the launcher points to the stable
-`.AppImage` path rather than its temporary mounted executable. If you move or
+`.AppImage` path rather than its temporary mounted executable — this also
+covers the `--appimage-extract-and-run` fallback above, whose temporary
+extraction directory (`$APPDIR`) is recognized the same way. If you move or
 rename the AppImage, open Settings and use **Add to application menu** to
-refresh the launcher path.
+refresh the launcher path; MeshNotch also self-heals this automatically on
+the next launch if it detects the recorded path no longer exists (e.g. the
+extraction directory was cleaned up), so a stale launcher entry from before
+v0.1.8 fixes itself once you start the app again.
 
 **Finding it faster**: the launcher entry (`~/.local/share/applications/
 meshnotch.desktop`) is tagged with search keywords (`claude`, `codex`,
