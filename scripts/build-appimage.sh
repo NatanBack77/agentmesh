@@ -33,7 +33,7 @@ echo "==> Compilando AppImage dentro do container..."
     "$IMAGE_TAG" \
     cargo tauri build --bundles appimage
 
-# app/ is a workspace member of the codenotch-linux crate, so cargo puts
+# app/ is a workspace member, so cargo puts
 # target/ at the workspace root, not under app/.
 OUT_DIR="$REPO_ROOT/codenotch-linux/target/release/bundle/appimage"
 echo

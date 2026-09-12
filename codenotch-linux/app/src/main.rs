@@ -1,6 +1,7 @@
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
 mod agentmesh;
+mod app_updates;
 mod autostart;
 mod claude;
 mod codex;
@@ -374,6 +375,7 @@ fn main() {
             programmatic_move: AtomicBool::new(false),
             refresh_in_progress: Arc::new(AtomicBool::new(false)),
         })
+        .manage(app_updates::AppUpdateState::default())
         .invoke_handler(tauri::generate_handler![
             get_state,
             refresh_all_cmd,
@@ -393,9 +395,14 @@ fn main() {
             set_enabled_providers,
             reset_notch_position,
             open_agentmesh_dashboard,
-            quit_app
+            quit_app,
+            app_updates::check_update,
+            app_updates::download_update,
+            app_updates::install_update,
+            app_updates::restart_app
         ])
         .setup(move |app| {
+            app_updates::install_plugin(app.handle())?;
             let handle = app.handle().clone();
             if let Err(error) = tray::setup(&handle) {
                 eprintln!("MeshNotch: tray unavailable; continuing without tray: {error}");

@@ -9,7 +9,7 @@
   <script>
     (() => {
       try {
-        const theme = localStorage.getItem("codenotch.theme");
+        const theme = localStorage.getItem("meshnotch.theme");
         if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
       } catch (_) {}
     })();
@@ -119,6 +119,15 @@
       background: color-mix(in srgb, var(--destructive) 13%, var(--surface));
     }
     .settings-button--destructive:disabled { cursor: wait; opacity: .65; }
+    .update-summary { display: grid; gap: 6px; margin-top: 14px; padding: 12px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--surface-thin); }
+    .update-summary[hidden] { display: none; }
+    .update-version { color: var(--label); font-size: 13px; font-weight: 650; }
+    .update-notes { margin: 0; color: var(--secondary-label); font-size: 12px; white-space: pre-line; }
+    .update-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+    .update-progress { width: 100%; height: 5px; accent-color: var(--accent); }
+    .update-progress[hidden] { display: none; }
+    .update-status[data-kind="error"] { color: var(--destructive); }
+    .update-status[data-kind="success"] { color: var(--green); }
     .settings-status { min-height: 18px; margin: 14px 0 0; color: var(--secondary-label); font-size: 11px; }
 
     .accent-swatches { display: flex; flex-wrap: wrap; gap: 8px; max-width: 240px; justify-content: flex-end; }
@@ -253,6 +262,28 @@
         </div>
       </div>
     </section>
+
+    <section class="settings-card surface-strong" aria-labelledby="updates-heading">
+      <p class="eyebrow">Manutenção</p>
+      <h2 id="updates-heading">Atualizações</h2>
+      <div class="settings-row">
+        <div><strong>Versão do MeshNotch</strong><small>Procure novas versões sem interromper seu trabalho.</small></div>
+        <div class="settings-control">
+          <button class="settings-button" id="check-update-button" type="button">Verificar atualização</button>
+        </div>
+      </div>
+      <p class="settings-status update-status" id="update-status" role="status" aria-live="polite"></p>
+      <div class="update-summary" id="update-summary" hidden>
+        <div class="update-version" id="update-version"></div>
+        <p class="update-notes" id="update-notes"></p>
+        <progress class="update-progress" id="update-progress" max="100" value="0" hidden></progress>
+        <div class="update-actions">
+          <button class="settings-button" id="download-update-button" type="button" hidden>Baixar atualização</button>
+          <button class="settings-button" id="install-update-button" type="button" hidden>Aplicar atualização</button>
+          <button class="settings-button" id="restart-update-button" type="button" hidden>Reiniciar MeshNotch</button>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script src="./theme.js"></script>
@@ -263,6 +294,118 @@
       const modes = [...document.querySelectorAll("[data-theme-mode]")];
       const setStatus = (message) => { status.textContent = message; };
       const updateModes = (theme) => modes.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.themeMode === theme)));
+
+      const updateStatus = document.getElementById("update-status");
+      const updateSummary = document.getElementById("update-summary");
+      const updateVersion = document.getElementById("update-version");
+      const updateNotes = document.getElementById("update-notes");
+      const updateProgress = document.getElementById("update-progress");
+      const downloadButton = document.getElementById("download-update-button");
+      const installButton = document.getElementById("install-update-button");
+      const restartButton = document.getElementById("restart-update-button");
+      const setUpdateStatus = (message, kind = "") => {
+        updateStatus.textContent = message;
+        updateStatus.dataset.kind = kind;
+      };
+      const setUpdateButtons = ({ download = false, install = false, restart = false } = {}) => {
+        downloadButton.hidden = !download;
+        installButton.hidden = !install;
+        restartButton.hidden = !restart;
+      };
+      const showAvailableUpdate = (result) => {
+        updateSummary.hidden = false;
+        updateVersion.textContent = `Nova versão ${result.version || "disponível"}`;
+        updateNotes.textContent = result.notes || "Melhorias e correções disponíveis.";
+        updateProgress.hidden = true;
+        setUpdateButtons({ download: true });
+        setUpdateStatus("Atualização disponível", "success");
+      };
+      const subscribeToUpdateProgress = () => {
+        window.MeshNotchTheme?.listen?.("update-progress", (event) => {
+          const progress = event?.payload ?? event ?? {};
+          if (progress.state === "started") {
+            updateProgress.hidden = false;
+            updateProgress.value = 0;
+            setUpdateStatus("Baixando atualização...");
+          } else if (progress.state === "progress") {
+            const total = Number(progress.content_length);
+            const downloaded = Number(progress.downloaded_bytes);
+            updateProgress.hidden = false;
+            updateProgress.value = total > 0 ? Math.min(100, (downloaded / total) * 100) : 0;
+            setUpdateStatus(total > 0 ? `Baixando atualização... ${Math.round(updateProgress.value)}%` : "Baixando atualização...");
+          } else if (progress.state === "finished") {
+            updateProgress.value = 100;
+            setUpdateStatus("Download concluído. A atualização está pronta para aplicar.", "success");
+          } else if (progress.state === "error") {
+            setUpdateStatus("Não foi possível baixar a atualização.", "error");
+          }
+        });
+      };
+
+      document.getElementById("check-update-button")?.addEventListener("click", () => {
+        const button = document.getElementById("check-update-button");
+        button.disabled = true;
+        button.textContent = "Verificando...";
+        setUpdateStatus("Verificando atualizações...");
+        invoke("check_update").then((result) => {
+          if (result?.state === "available") showAvailableUpdate(result);
+          else if (result?.state === "up_to_date") {
+            updateSummary.hidden = true;
+            setUpdateStatus("Você já está usando a versão mais recente.", "success");
+          } else {
+            updateSummary.hidden = true;
+            setUpdateStatus("Não foi possível verificar atualizações agora.", "error");
+          }
+        }).catch(() => {
+          updateSummary.hidden = true;
+          setUpdateStatus("Não foi possível verificar atualizações agora.", "error");
+        }).finally(() => {
+          button.disabled = false;
+          button.textContent = "Verificar atualização";
+        });
+      });
+
+      downloadButton?.addEventListener("click", () => {
+        downloadButton.disabled = true;
+        setUpdateButtons();
+        updateProgress.hidden = false;
+        updateProgress.value = 0;
+        setUpdateStatus("Preparando download...");
+        invoke("download_update").then(() => {
+          updateProgress.value = 100;
+          setUpdateButtons({ install: true });
+          setUpdateStatus("Download concluído. Confirme para aplicar a atualização.", "success");
+        }).catch(() => {
+          downloadButton.disabled = false;
+          setUpdateButtons({ download: true });
+          setUpdateStatus("Não foi possível baixar a atualização.", "error");
+        });
+      });
+
+      installButton?.addEventListener("click", () => {
+        if (!window.confirm("Aplicar a atualização do MeshNotch agora?")) return;
+        installButton.disabled = true;
+        setUpdateStatus("Aplicando atualização...");
+        invoke("install_update").then(() => {
+          setUpdateButtons({ restart: true });
+          setUpdateStatus("Atualização aplicada. Reinicie o MeshNotch para concluir.", "success");
+        }).catch(() => {
+          installButton.disabled = false;
+          setUpdateButtons({ install: true });
+          setUpdateStatus("Não foi possível aplicar a atualização.", "error");
+        });
+      });
+
+      restartButton?.addEventListener("click", () => {
+        if (!window.confirm("Reiniciar o MeshNotch agora?")) return;
+        restartButton.disabled = true;
+        setUpdateStatus("Reiniciando MeshNotch...");
+        invoke("restart_app").catch(() => {
+          restartButton.disabled = false;
+          setUpdateStatus("Não foi possível reiniciar o aplicativo.", "error");
+        });
+      });
+      subscribeToUpdateProgress();
 
       modes.forEach((button) => button.addEventListener("click", () => {
         const theme = button.dataset.themeMode;
@@ -367,7 +510,7 @@
         });
       });
 
-      document.addEventListener("codenotch:state", (event) => {
+      document.addEventListener("meshnotch:state", (event) => {
         const state = event.detail || {};
         const theme = state.theme || window.MeshNotchTheme?.effectiveTheme();
         updateModes(theme === "system" ? "system" : theme);
@@ -396,8 +539,8 @@
           text.textContent = "AgentMesh não encontrado (rode 'agentmesh serve' localmente)";
         }
       });
-      document.addEventListener("codenotch:theme", (event) => updateModes(event.detail));
-      document.addEventListener("codenotch:scale", (event) => {
+      document.addEventListener("meshnotch:theme", (event) => updateModes(event.detail));
+      document.addEventListener("meshnotch:scale", (event) => {
         const scale = Number(event.detail);
         if (!Number.isNaN(scale)) document.getElementById("scale-value").textContent = `${Math.round(scale * 100)}%`;
       });

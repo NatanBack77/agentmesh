@@ -39,20 +39,45 @@ jobs:
 
       - name: Build AppImage
         working-directory: codenotch-linux/app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo tauri build --bundles appimage
 
       - name: Locate AppImage
         id: find
-        # `app` is a workspace member of the codenotch-linux crate, so cargo
-        # puts `target/` at the workspace root (codenotch-linux/target), not
+        # `app` is a workspace member, so cargo puts `target/` at the workspace
+        # root (the codenotch-linux directory), not
         # under app/ — the "Cache cargo" step above already reflects this.
         run: |
           path=$(find target/release/bundle/appimage -iname "*.AppImage" | head -n1)
           echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "asset=$(basename "$path")" >> "$GITHUB_OUTPUT"
+          echo "signature=$path.sig" >> "$GITHUB_OUTPUT"
         working-directory: codenotch-linux
+
+      - name: Generate updater manifest
+        env:
+          VERSION: ${{ github.ref_name }}
+          ASSET: ${{ steps.find.outputs.asset }}
+          SIGNATURE_PATH: codenotch-linux/${{ steps.find.outputs.signature }}
+        run: |
+          version="${VERSION#meshnotch-v}"
+          signature=$(cat "$SIGNATURE_PATH")
+          jq -n \
+            --arg version "$version" \
+            --arg notes "MeshNotch ${version}" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg url "https://github.com/NatanBack77/agentmesh/releases/download/${VERSION}/${ASSET}" \
+            --arg signature "$signature" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: {"linux-x86_64": {url: $url, signature: $signature}}}' \
+            > codenotch-linux/target/release/bundle/latest.json
 
       - name: Create/update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: codenotch-linux/${{ steps.find.outputs.path }}
+          files: |
+            codenotch-linux/${{ steps.find.outputs.path }}
+            codenotch-linux/${{ steps.find.outputs.signature }}
+            codenotch-linux/target/release/bundle/latest.json
           generate_release_notes: true

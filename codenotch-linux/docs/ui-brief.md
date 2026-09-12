@@ -6,8 +6,8 @@ Pixel owns the complete frontend polish for `app/ui/notch.html` and
 Hard requirements:
 
 - macOS Sonoma/Sequoia-inspired glassmorphism.
-- Keep the prepared light/dark theme toggle from `../codenotch-linux-ui-base`
-  and its `localStorage` key, `codenotch.theme`.
+- Keep the prepared light/dark theme toggle from the sibling MeshNotch UI-base
+  workspace and its `localStorage` key, `meshnotch.theme`.
 - Dense desktop utility feel, not a marketing page.
 - Translucent panels with fallbacks for reduced/unsupported transparency.
 - Provider rings must remain readable on light and dark wallpapers.

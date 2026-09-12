@@ -9,7 +9,7 @@
   <script>
     (() => {
       try {
-        const theme = localStorage.getItem("codenotch.theme");
+        const theme = localStorage.getItem("meshnotch.theme");
         if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
       } catch (_) {}
     })();
@@ -442,7 +442,7 @@
       });
       window.addEventListener("pointerup", () => { dragArmed = false; });
 
-      document.addEventListener("codenotch:state", (event) => {
+      document.addEventListener("meshnotch:state", (event) => {
         latestState = event.detail || latestState;
         syncProviderRings();
         if (latestState.orientation) document.documentElement.dataset.orientation = latestState.orientation;
@@ -460,7 +460,7 @@
           meshChip.hidden = true;
         }
       });
-      document.addEventListener("codenotch:activity", () => invoke("get_state").then((state) => {
+      document.addEventListener("meshnotch:activity", () => invoke("get_state").then((state) => {
         if (state) {
           latestState = state;
           rings.forEach(paintRing);

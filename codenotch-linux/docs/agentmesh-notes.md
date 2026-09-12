@@ -20,5 +20,5 @@ Implications for this Linux MVP:
 - Use stale cached readings honestly instead of inventing fresh values.
 - Let `app/ui/*` own presentation only; provider parsing belongs in Rust.
 - Preserve the theme-toggle shape already prepared in
-  `../codenotch-linux-ui-base`: `data-theme`, `data-theme-switching`,
-  `prefers-color-scheme`, and `localStorage["codenotch.theme"]`.
+  the sibling UI-base workspace: `data-theme`, `data-theme-switching`,
+  `prefers-color-scheme`, and `localStorage["meshnotch.theme"]`.

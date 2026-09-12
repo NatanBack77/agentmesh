@@ -1,4 +1,4 @@
-const THEME_KEY = "codenotch.theme";
+const THEME_KEY = "meshnotch.theme";
 const themeQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
 function tauriApi() {
@@ -73,7 +73,7 @@ function setTheme(theme, persist = true) {
 async function syncState(state) {
   if (!state || typeof state !== "object") return;
   if (state.theme) applyTheme(state.theme, state.theme !== "system");
-  document.dispatchEvent(new CustomEvent("codenotch:state", { detail: state }));
+  document.dispatchEvent(new CustomEvent("meshnotch:state", { detail: state }));
 }
 
 async function bootThemeToggle() {
@@ -95,7 +95,7 @@ async function bootThemeToggle() {
       const value = payload?.payload ?? payload;
       if (event === "theme" && typeof value === "string") applyTheme(value, value !== "system");
       if (event === "state") syncState(value);
-      document.dispatchEvent(new CustomEvent(`codenotch:${event}`, { detail: value }));
+      document.dispatchEvent(new CustomEvent(`meshnotch:${event}`, { detail: value }));
     });
   });
 
