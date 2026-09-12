@@ -58,11 +58,22 @@ fn write_entry() -> Result<(), String> {
     Ok(())
 }
 
-/// Install on first launch only; keep an existing entry unchanged until the
-/// user explicitly asks to refresh it from Settings.
+fn entry_needs_refresh(existing_contents: Option<&str>) -> bool {
+    match existing_contents {
+        Some(contents) => !contents.contains("Keywords="),
+        None => true,
+    }
+}
+
+/// Install on first launch, and migrate existing entries written before
+/// Keywords/StartupWMClass were added (older MeshNotch versions) so upgrading
+/// via auto-update also fixes search discoverability without a manual step.
+/// Otherwise keep the entry unchanged — a user's own edits, or a path
+/// refreshed from Settings, are left alone.
 pub fn install_if_missing() -> Result<(), String> {
     let desktop_file = desktop_file_path()?;
-    if desktop_file.is_file() {
+    let existing = std::fs::read_to_string(&desktop_file).ok();
+    if !entry_needs_refresh(existing.as_deref()) {
         return Ok(());
     }
     write_entry()
@@ -87,5 +98,17 @@ mod tests {
         assert!(entry.contains("Categories=Utility;"));
         assert!(entry.contains("Keywords=claude;codex;cursor;agentmesh;usage;quota;notch;ai;"));
         assert!(entry.contains("StartupWMClass=MeshNotch"));
+    }
+
+    #[test]
+    fn refreshes_entries_missing_or_predating_keywords() {
+        use super::entry_needs_refresh;
+        assert!(entry_needs_refresh(None));
+        assert!(entry_needs_refresh(Some(
+            "[Desktop Entry]\nName=MeshNotch\nExec=/x %U\nIcon=meshnotch\n"
+        )));
+        assert!(!entry_needs_refresh(Some(
+            "[Desktop Entry]\nName=MeshNotch\nKeywords=claude;codex;\n"
+        )));
     }
 }

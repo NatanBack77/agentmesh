@@ -64,9 +64,11 @@ those into KRunner (Alt+Space/Alt+F2 on KDE), GNOME Activities search, or
 your distro's app launcher finds MeshNotch even if you don't type its exact
 name. The notch window's title is `MeshNotch`, so it also shows up correctly
 by name in Alt+Tab / task switchers instead of a generic or blank entry.
-If you added MeshNotch before this fix and it still doesn't show up when
-searching, use **Add to application menu** in Settings to rewrite the
-launcher entry with the updated keywords.
+If you installed MeshNotch before this fix (v0.1.6+), the next launch — including
+right after an in-app update — rewrites the launcher entry with the new
+keywords automatically; no manual step needed. If it somehow still doesn't
+show up when searching, use **Add to application menu** in Settings to force
+a rewrite.
 
 ## Build
 
