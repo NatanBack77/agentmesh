@@ -8,34 +8,6 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "label": "notch",
-        "url": "notch.html",
-        "width": 360,
-        "height": 480,
-        "transparent": true,
-        "decorations": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "resizable": false,
-        "shadow": false,
-        "visible": false,
-        "focus": false
-      },
-      {
-        "label": "settings",
-        "title": "MeshNotch Settings",
-        "url": "settings.html",
-        "width": 560,
-        "height": 640,
-        "minWidth": 480,
-        "minHeight": 520,
-        "resizable": true,
-        "visible": false,
-        "skipTaskbar": false
-      }
-    ],
     "security": {
       "csp": null
     }

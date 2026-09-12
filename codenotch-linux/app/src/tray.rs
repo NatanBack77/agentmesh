@@ -1,6 +1,6 @@
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
@@ -22,10 +22,15 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "settings" => {
-                if let Some(window) = app.get_webview_window("settings") {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
+                match crate::get_or_create_settings_window(app) {
+                    Ok(window) => {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                    Err(error) => crate::logging::info(format!(
+                        "could not open Settings from tray: {error}"
+                    )),
                 }
             }
             "refresh" => crate::refresh_all(app),

@@ -132,3 +132,11 @@ endpoint.
   notch behavior. A later milestone should add layer-shell support.
 - GUI-launched Linux apps often have a smaller `$PATH`; provider CLI discovery
   should not rely on shell dotfiles.
+- Startup diagnostics (including GTK/WebKit stdout/stderr) are tee'd to
+  `~/.config/meshnotch/app.log` and the original output streams. Wayland
+  launches disable WebKit compositing and force software GL before GTK starts;
+  KDE/Wayland filters the known
+  incompatible appmenu/window-decoration modules from `GTK_MODULES` while
+  retaining other modules. Other desktop sessions retain their configuration.
+  The tray is initialized before either WebView is created, so a recoverable
+  window creation failure still leaves tray controls available.

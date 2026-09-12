@@ -9,8 +9,10 @@ mod config;
 mod cursor;
 mod desktop_integration;
 mod local_runtime;
+mod logging;
 mod platform;
 mod provider;
+mod runtime_safety;
 mod server;
 mod state;
 mod tray;
@@ -19,7 +21,9 @@ mod watcher;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 
 const NOTCH_W_VERTICAL: f64 = 360.0;
 const NOTCH_H_VERTICAL: f64 = 420.0;
@@ -137,6 +141,92 @@ fn place_notch(app: &AppHandle) {
         x.clamp(min_x, max_x),
         y.clamp(min_y, max_y),
     ));
+}
+
+fn create_notch_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let window = WebviewWindowBuilder::new(app, "notch", WebviewUrl::App("notch.html".into()))
+        .inner_size(NOTCH_W_VERTICAL, NOTCH_H_VERTICAL)
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false)
+        .focused(false)
+        .build()?;
+
+    let move_handle = app.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::Moved(position) = event {
+            let state = move_handle.state::<AppState>();
+            if state.programmatic_move.swap(false, Ordering::SeqCst) {
+                return;
+            }
+            persist_notch_move(&move_handle, *position);
+        }
+    });
+    Ok(window)
+}
+
+fn create_settings_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let window = WebviewWindowBuilder::new(
+        app,
+        "settings",
+        WebviewUrl::App("settings.html".into()),
+    )
+    .title("MeshNotch Settings")
+    .inner_size(560.0, 640.0)
+    .min_inner_size(480.0, 520.0)
+    .resizable(true)
+    .visible(false)
+    .skip_taskbar(false)
+    .build()?;
+
+    let settings_window = window.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = settings_window.hide();
+        }
+    });
+    Ok(window)
+}
+
+pub(crate) fn get_or_create_settings_window(
+    app: &AppHandle,
+) -> Result<WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window("settings") {
+        return Ok(window);
+    }
+    create_settings_window(app).map_err(|error| error.to_string())
+}
+
+fn create_windows_independently(app: &AppHandle) {
+    match create_notch_window(app) {
+        Ok(window) => {
+            place_notch(app);
+            let visible = {
+                let state = app.state::<AppState>();
+                let visible = state.cfg.lock().unwrap().notch_visible;
+                visible
+            };
+            if visible {
+                if let Err(error) = window.show() {
+                    logging::info(format!("could not show notch window: {error}"));
+                }
+            }
+        }
+        Err(error) => logging::info(format!(
+            "notch WebView creation failed; tray/settings startup continues: {error}"
+        )),
+    }
+
+    if let Err(error) = create_settings_window(app) {
+        logging::info(format!(
+            "settings WebView creation failed; tray/notch startup continues: {error}"
+        ));
+    }
 }
 
 fn persist_notch_move(app: &AppHandle, position: tauri::PhysicalPosition<i32>) {
@@ -265,9 +355,7 @@ fn drag_begin(app: AppHandle) {
 
 #[tauri::command]
 fn open_settings(app: AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("settings")
-        .ok_or_else(|| "settings window missing".to_string())?;
+    let window = get_or_create_settings_window(&app)?;
     window.show().map_err(|e| e.to_string())?;
     let _ = window.unminimize();
     window.set_focus().map_err(|e| e.to_string())
@@ -367,11 +455,20 @@ fn add_to_app_menu() -> Result<(), String> {
 }
 
 fn main() {
+    match logging::init() {
+        Ok(path) => logging::info(format!("persistent log: {}", path.display())),
+        Err(error) => eprintln!("MeshNotch: could not initialize file logging: {error}"),
+    }
+    runtime_safety::prepare_before_gtk();
+    logging::info("starting Tauri runtime");
+
     let cfg = config::load();
     let port = cfg.port;
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("notch") {
+                let _ = window.show();
+            } else if let Ok(window) = get_or_create_settings_window(app) {
                 let _ = window.show();
             }
         }))
@@ -409,50 +506,34 @@ fn main() {
             app_updates::restart_app
         ])
         .setup(move |app| {
-            app_updates::install_plugin(app.handle())?;
+            if let Err(error) = app_updates::install_plugin(app.handle()) {
+                logging::info(format!("updater plugin unavailable; continuing: {error}"));
+            }
             let handle = app.handle().clone();
             if let Err(error) = desktop_integration::install_if_missing() {
-                eprintln!("MeshNotch: could not install application menu entry: {error}");
+                logging::info(format!("could not install application menu entry: {error}"));
             }
             if let Err(error) = tray::setup(&handle) {
-                eprintln!("MeshNotch: tray unavailable; continuing without tray: {error}");
+                logging::info(format!("tray unavailable; continuing: {error}"));
             }
+            logging::info("tray setup attempted before any WebView creation");
             server::start(handle.clone(), port);
             watcher::start(handle.clone());
-            place_notch(&handle);
-            if let Some(window) = handle.get_webview_window("notch") {
-                let visible = {
-                    let state = handle.state::<AppState>();
-                    let cfg = state.cfg.lock().unwrap();
-                    cfg.notch_visible
-                };
-                if visible {
-                    let _ = window.show();
-                }
-                let move_handle = handle.clone();
-                window.on_window_event(move |event| {
-                    if let WindowEvent::Moved(position) = event {
-                        let state = move_handle.state::<AppState>();
-                        if state.programmatic_move.swap(false, Ordering::SeqCst) {
-                            return;
-                        }
-                        persist_notch_move(&move_handle, *position);
-                    }
-                });
-            }
-            if let Some(window) = handle.get_webview_window("settings") {
-                let settings_window = window.clone();
-                window.on_window_event(move |event| {
-                    if let WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = settings_window.hide();
-                    }
-                });
-            }
+            create_windows_independently(&handle);
             refresh_all(&handle);
             poll_usage(handle);
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running MeshNotch");
+        .unwrap_or_else(|error| logging::info(format!("Tauri runtime stopped with error: {error}")));
+}
+
+#[cfg(test)]
+mod startup_tests {
+    #[test]
+    fn tauri_does_not_eagerly_create_webviews_before_setup() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert!(config["app"].get("windows").is_none());
+    }
 }
