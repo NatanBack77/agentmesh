@@ -13,6 +13,41 @@ The first target is X11-friendly Linux. Wayland support is best-effort in this
 MVP because absolute positioning, always-on-top, focus stealing and click-through
 depend on compositor policy.
 
+## Install (end users)
+
+No build tools needed — download and run the AppImage:
+
+1. Grab the latest `MeshNotch_*_amd64.AppImage` from the
+   [Releases page](https://github.com/NatanBack77/agentmesh/releases).
+2. Make it executable and run it:
+   ```sh
+   chmod +x MeshNotch_*_amd64.AppImage
+   ./MeshNotch_*_amd64.AppImage
+   ```
+3. The notch appears on the right edge of your primary monitor, and a tray
+   icon is added (Settings, Refresh, Autostart, Quit).
+
+If it fails to start with an error mentioning `libfuse.so.2`, your distro
+dropped FUSE2 by default (Ubuntu 24.04+, Fedora 36+). Either install it —
+`sudo apt install libfuse2t64` (Ubuntu) or `sudo dnf install fuse-libs`
+(Fedora) — or run the AppImage without FUSE:
+```sh
+./MeshNotch_*_amd64.AppImage --appimage-extract-and-run
+```
+
+**Updating**: open Settings → Atualizações → *Verificar atualização*. MeshNotch
+checks the latest GitHub Release, and if a newer signed build is available it
+downloads and installs it in place — no need to re-download the AppImage by
+hand.
+
+**Autostart**: enable it from the tray menu or Settings to have MeshNotch
+launch automatically on login (writes
+`~/.config/autostart/meshnotch.desktop`).
+
+**Uninstalling**: quit the app, delete the AppImage file, and remove
+`~/.config/meshnotch/` and `~/.config/autostart/meshnotch.desktop` if you
+enabled autostart.
+
 ## Build
 
 Install Rust and the Tauri Linux dependencies for your distro, including
