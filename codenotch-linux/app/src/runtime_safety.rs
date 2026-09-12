@@ -16,6 +16,28 @@ fn is_kde(desktop: Option<&str>, kde_full_session: Option<&str>, session: Option
         })
 }
 
+fn nvidia_proprietary_driver_present() -> bool {
+    std::path::Path::new("/proc/driver/nvidia/version").exists()
+}
+
+fn should_force_software_renderer(explicit: Option<&str>, nvidia_proprietary: bool) -> bool {
+    match explicit.map(|value| value.trim().to_ascii_lowercase()) {
+        Some(value) if matches!(value.as_str(), "1" | "true" | "yes") => true,
+        Some(value) if matches!(value.as_str(), "0" | "false" | "no") => false,
+        _ => nvidia_proprietary,
+    }
+}
+
+fn renderer_decision_source(explicit: Option<&str>, nvidia_proprietary: bool) -> &'static str {
+    match explicit.map(|value| value.trim().to_ascii_lowercase()) {
+        Some(value) if matches!(value.as_str(), "1" | "true" | "yes" | "0" | "false" | "no") => {
+            "explicit MESHNOTCH_FORCE_SOFTWARE_RENDERER override"
+        }
+        _ if nvidia_proprietary => "NVIDIA proprietary driver detected",
+        _ => "native renderer default",
+    }
+}
+
 fn filter_incompatible_gtk_modules(modules: &str) -> (String, Vec<String>) {
     let mut removed = Vec::new();
     let retained = modules
@@ -35,9 +57,8 @@ fn filter_incompatible_gtk_modules(modules: &str) -> (String, Vec<String>) {
     (retained, removed)
 }
 
-/// Must run before GTK/WebKit initialization. Software rendering is enabled
-/// proactively for Wayland: an EGL initialization failure can abort the
-/// process, so there is no safe in-process opportunity to detect and retry it.
+/// Must run before GTK/WebKit initialization. NVIDIA proprietary drivers use
+/// the software fallback by default; other Wayland systems use native EGL.
 pub fn prepare_before_gtk() {
     let wayland = is_wayland(
         std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
@@ -49,12 +70,20 @@ pub fn prepare_before_gtk() {
         std::env::var("DESKTOP_SESSION").ok().as_deref(),
     );
 
-    if wayland {
+    let renderer_override = std::env::var("MESHNOTCH_FORCE_SOFTWARE_RENDERER").ok();
+    let nvidia_proprietary = nvidia_proprietary_driver_present();
+    let force_software_renderer =
+        should_force_software_renderer(renderer_override.as_deref(), nvidia_proprietary);
+    let renderer_source =
+        renderer_decision_source(renderer_override.as_deref(), nvidia_proprietary);
+    if wayland && force_software_renderer {
         std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
         std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
         logging::info(format!(
-            "Wayland renderer fallback enabled (KDE={kde}, WEBKIT_DISABLE_COMPOSITING_MODE=1, LIBGL_ALWAYS_SOFTWARE=1)"
+            "Wayland software renderer enabled ({renderer_source}, KDE={kde}, WEBKIT_DISABLE_COMPOSITING_MODE=1, LIBGL_ALWAYS_SOFTWARE=1)"
         ));
+    } else if wayland {
+        logging::info(format!("native Wayland WebKit renderer enabled ({renderer_source})"));
     }
 
     if wayland && kde {
@@ -76,7 +105,7 @@ pub fn prepare_before_gtk() {
 
 #[cfg(test)]
 mod tests {
-    use super::{filter_incompatible_gtk_modules, is_kde, is_wayland};
+    use super::{filter_incompatible_gtk_modules, is_kde, is_wayland, should_force_software_renderer};
 
     #[test]
     fn detects_kde_wayland_without_affecting_other_sessions() {
@@ -102,6 +131,18 @@ mod tests {
                 ]
             )
         );
+    }
+
+    #[test]
+    fn selects_renderer_from_nvidia_detection_unless_explicitly_overridden() {
+        assert!(should_force_software_renderer(None, true));
+        assert!(!should_force_software_renderer(None, false));
+        assert!(should_force_software_renderer(Some("1"), false));
+        assert!(!should_force_software_renderer(Some("0"), true));
+        assert!(should_force_software_renderer(Some(" TRUE "), false));
+        assert!(!should_force_software_renderer(Some("No"), true));
+        assert!(should_force_software_renderer(Some("invalid"), true));
+        assert!(!should_force_software_renderer(Some("invalid"), false));
     }
 
 }

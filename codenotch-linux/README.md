@@ -133,10 +133,25 @@ endpoint.
 - GUI-launched Linux apps often have a smaller `$PATH`; provider CLI discovery
   should not rely on shell dotfiles.
 - Startup diagnostics (including GTK/WebKit stdout/stderr) are tee'd to
-  `~/.config/meshnotch/app.log` and the original output streams. Wayland
-  launches disable WebKit compositing and force software GL before GTK starts;
-  KDE/Wayland filters the known
-  incompatible appmenu/window-decoration modules from `GTK_MODULES` while
-  retaining other modules. Other desktop sessions retain their configuration.
-  The tray is initialized before either WebView is created, so a recoverable
-  window creation failure still leaves tray controls available.
+  `~/.config/meshnotch/app.log` and the original output streams. On Wayland,
+  MeshNotch picks WebKit's renderer by GPU vendor: if `/proc/driver/nvidia/
+  version` exists (proprietary NVIDIA driver), it falls back to WebKit's
+  software renderer automatically (`WEBKIT_DISABLE_COMPOSITING_MODE=1`,
+  `LIBGL_ALWAYS_SOFTWARE=1`) — this driver has separate, previously
+  documented EGL issues under Wayland. Everywhere else (Mesa: AMD/Intel/
+  nouveau) it uses WebKit's native EGL renderer. Set
+  `MESHNOTCH_FORCE_SOFTWARE_RENDERER=1` (or `0`) in the environment to
+  override the automatic choice either way — useful if the vendor detection
+  misses an exotic setup and MeshNotch closes immediately on launch with no
+  window (check `app.log` for `EGL_BAD_PARAMETER` or similar). KDE/Wayland
+  also filters the known incompatible appmenu/window-decoration modules from
+  `GTK_MODULES` while retaining other modules; other desktop sessions retain
+  their configuration. The tray is initialized before either WebView is
+  created, so a recoverable window creation failure still leaves tray
+  controls available.
+- The AppImage build excludes the bundled `libwayland-client`/`cursor`/`egl`/
+  `server` libraries (`scripts/build-appimage.sh`) — those must come from the
+  host, since a version bundled from the Ubuntu 22.04 builder can conflict
+  with newer host Mesa and abort WebKitGTK with `EGL_BAD_PARAMETER`. Confirmed
+  fixed on AMD (radeonsi/Mesa 26.1.4). Not yet smoke-tested on Intel Mesa,
+  older Mesa versions, or X11.

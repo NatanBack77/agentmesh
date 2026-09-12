@@ -16,6 +16,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfuse2 patchelf \
     && rm -rf /var/lib/apt/lists/*
 
+# appimagetool re-packages the AppDir after we strip libwayland-* from it
+# (see scripts/build-appimage.sh) — those libs must come from the host at
+# runtime (Wayland protocol/Mesa coupling), bundling them causes
+# EGL_BAD_PARAMETER aborts in WebKitGTK on newer host Mesa versions.
+# Extracted at build time (not left as a self-mounting AppImage) since the
+# container has no /dev/fuse to mount it at runtime.
+RUN curl -L -o /tmp/appimagetool.AppImage \
+    https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+    && chmod +x /tmp/appimagetool.AppImage \
+    && cd /opt && /tmp/appimagetool.AppImage --appimage-extract \
+    && mv squashfs-root appimagetool.AppDir \
+    && ln -s /opt/appimagetool.AppDir/AppRun /usr/local/bin/appimagetool \
+    && rm /tmp/appimagetool.AppImage
+
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
 RUN cargo install tauri-cli --version "^2.0" --locked
 

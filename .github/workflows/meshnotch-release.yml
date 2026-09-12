@@ -52,9 +52,9 @@ jobs:
 
       - name: Build AppImage
         working-directory: codenotch-linux/app
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        # Signing happens later, after libwayland-* is stripped from the
+        # AppDir — signing the pre-strip artifact here would leave the
+        # final (repacked) AppImage with an invalid .sig.
         run: cargo tauri build --bundles appimage
 
       - name: Locate AppImage
@@ -67,6 +67,45 @@ jobs:
           echo "path=$path" >> "$GITHUB_OUTPUT"
           echo "asset=$(basename "$path")" >> "$GITHUB_OUTPUT"
           echo "signature=$path.sig" >> "$GITHUB_OUTPUT"
+        working-directory: codenotch-linux
+
+      - name: Install appimagetool
+        run: |
+          curl -L -o /tmp/appimagetool.AppImage \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool.AppImage
+          cd /tmp && ./appimagetool.AppImage --appimage-extract >/dev/null
+          sudo ln -s /tmp/squashfs-root/AppRun /usr/local/bin/appimagetool
+
+      - name: Strip bundled libwayland-* and re-pack
+        # libwayland-client/cursor/egl/server are protocol/Mesa-coupled to
+        # the host compositor and driver: bundling the ubuntu-22.04 runner's
+        # version causes EGL_BAD_PARAMETER aborts in WebKitGTK on newer host
+        # Mesa (confirmed via LD_PRELOAD A/B test). The official AppImage
+        # excludelist agrees these must come from the host.
+        working-directory: codenotch-linux
+        run: |
+          appimage="${{ steps.find.outputs.path }}"
+          work_dir=$(mktemp -d)
+          cp "$appimage" "$work_dir/repack.AppImage"
+          (
+            cd "$work_dir"
+            chmod +x repack.AppImage
+            ./repack.AppImage --appimage-extract >/dev/null
+            rm -f squashfs-root/usr/lib/libwayland-client.so* \
+                  squashfs-root/usr/lib/libwayland-cursor.so* \
+                  squashfs-root/usr/lib/libwayland-egl.so* \
+                  squashfs-root/usr/lib/libwayland-server.so*
+            ARCH=x86_64 appimagetool squashfs-root out.AppImage
+          )
+          mv "$work_dir/out.AppImage" "$appimage"
+          rm -rf "$work_dir"
+
+      - name: Sign AppImage
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: cargo tauri signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "${{ steps.find.outputs.path }}"
         working-directory: codenotch-linux
 
       - name: Generate updater manifest

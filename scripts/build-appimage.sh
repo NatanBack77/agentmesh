@@ -26,15 +26,43 @@ echo "==> Buildando imagem builder (Ubuntu 22.04 + Rust + tauri-cli)..."
 "$ENGINE" build -t "$IMAGE_TAG" -f "$REPO_ROOT/codenotch-linux/docker/ubuntu-appimage.Dockerfile" "$REPO_ROOT/codenotch-linux/docker"
 
 echo "==> Compilando AppImage dentro do container..."
+# app/ is a workspace member, so cargo puts
+# target/ at the workspace root, not under app/.
 "$ENGINE" run --rm \
     -v "$REPO_ROOT:/work:z" \
     -v "$CARGO_CACHE_VOLUME:/root/.cargo/registry:z" \
     -w /work/codenotch-linux/app \
     "$IMAGE_TAG" \
-    cargo tauri build --bundles appimage
+    bash -c 'set -euo pipefail
+        cargo tauri build --bundles appimage
+        out_dir=/work/codenotch-linux/target/release/bundle/appimage
+        appimage=$(find "$out_dir" -iname "*.AppImage" | head -n1)
+        if [ -z "$appimage" ]; then
+            echo "AppImage não encontrado em $out_dir" >&2
+            exit 1
+        fi
 
-# app/ is a workspace member, so cargo puts
-# target/ at the workspace root, not under app/.
+        # libwayland-client/cursor/egl/server are protocol/Mesa-coupled to
+        # the host compositor and driver: bundling a version from the
+        # (older) Ubuntu 22.04 builder causes EGL_BAD_PARAMETER aborts in
+        # WebKitGTK on newer host Mesa (confirmed via LD_PRELOAD A/B test).
+        # The official AppImage excludelist agrees these must come from the
+        # host, so strip them here and re-pack instead of trusting them in
+        # the bundle.
+        echo "==> Removendo libwayland-* empacotadas e reempacotando..."
+        work_dir=$(mktemp -d)
+        cd "$work_dir"
+        "$appimage" --appimage-extract >/dev/null
+        rm -f squashfs-root/usr/lib/libwayland-client.so* \
+              squashfs-root/usr/lib/libwayland-cursor.so* \
+              squashfs-root/usr/lib/libwayland-egl.so* \
+              squashfs-root/usr/lib/libwayland-server.so*
+        rm -f "$appimage"
+        ARCH=x86_64 appimagetool squashfs-root "$appimage"
+        cd /
+        rm -rf "$work_dir"
+    '
+
 OUT_DIR="$REPO_ROOT/codenotch-linux/target/release/bundle/appimage"
 echo
 echo "==> Pronto. AppImage em:"
