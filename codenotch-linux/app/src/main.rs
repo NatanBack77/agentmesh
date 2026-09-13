@@ -150,6 +150,12 @@ fn create_notch_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .transparent(true)
         .decorations(false)
         .always_on_top(true)
+        // Without this, KDE/GNOME only keep the window above others on the
+        // workspace it was created on: switching virtual desktops, or
+        // another window grabbing focus in a way that changes stacking
+        // order, drops the notch out of view instead of it staying pinned
+        // like a real overlay/dock.
+        .visible_on_all_workspaces(true)
         .skip_taskbar(true)
         .resizable(false)
         .shadow(false)
@@ -223,11 +229,11 @@ fn create_windows_independently(app: &AppHandle) {
         )),
     }
 
-    if let Err(error) = create_settings_window(app) {
-        logging::info(format!(
-            "settings WebView creation failed; tray/notch startup continues: {error}"
-        ));
-    }
+    // Settings gets its own full WebKitWebProcess (~70-100MB) once created;
+    // creating it eagerly here meant every user paid that cost for the
+    // entire session even if they never opened Settings. It's created
+    // lazily instead, on first use, via get_or_create_settings_window
+    // (already the path the tray menu and the open_settings command use).
 }
 
 fn persist_notch_move(app: &AppHandle, position: tauri::PhysicalPosition<i32>) {
