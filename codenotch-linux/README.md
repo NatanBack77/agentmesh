@@ -148,6 +148,18 @@ endpoint.
 - X11 is the reliable MVP target for always-on-top notch behavior.
 - Wayland may fall back to tray/settings if the compositor does not permit the
   notch behavior. A later milestone should add layer-shell support.
+- **GNOME on Wayland**: Mutter doesn't honor always-on-top for regular
+  toplevel windows the way KWin/Sway do, and `gtk-layer-shell` (the usual fix
+  for this) explicitly doesn't support GNOME — so the notch could disappear
+  the moment focus moved to another window. MeshNotch detects GNOME + Wayland
+  (`XDG_CURRENT_DESKTOP`/`GNOME_DESKTOP_SESSION_ID` + `XDG_SESSION_TYPE`) and
+  runs through XWayland instead (`GDK_BACKEND=x11`), the one mitigation with
+  real evidence of fixing this exact symptom (see
+  [tauri-apps/tao#1134](https://github.com/tauri-apps/tao/issues/1134),
+  [tauri-apps/tauri#3117](https://github.com/tauri-apps/tauri/issues/3117),
+  [#13121](https://github.com/tauri-apps/tauri/issues/13121)). Set
+  `MESHNOTCH_FORCE_X11=0` to opt back into native Wayland, or `=1` to force
+  XWayland on any other desktop.
 - GUI-launched Linux apps often have a smaller `$PATH`; provider CLI discovery
   should not rely on shell dotfiles.
 - Startup diagnostics (including GTK/WebKit stdout/stderr) are tee'd to
