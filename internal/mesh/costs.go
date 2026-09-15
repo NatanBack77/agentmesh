@@ -1,15 +1,16 @@
 package mesh
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -138,22 +139,167 @@ type dashboardCosts struct {
 	KnownDirs      []string                  `json:"known_dirs,omitempty"`
 }
 
-// costsSnapshot returns the cached cost report, recomputing it from disk at
-// most once every 20s — scanning every local transcript on every 300ms SSE
-// tick would turn the dashboard into a filesystem stress test.
+// costsSnapshot returns the cached cost report, refreshing it from disk at
+// most once every 4s. Refreshing only tails the bytes appended to each
+// transcript since the last read (see tailClaudeUsage/tailCodexUsage), so a
+// short interval keeps token/cost figures close to real time without
+// rescanning gigabytes of JSONL history on every SSE tick.
 func (e *Engine) costsSnapshot() dashboardCosts {
 	e.costsMu.Lock()
 	defer e.costsMu.Unlock()
-	if e.costsCache != nil && time.Since(e.costsAt) < 20*time.Second {
+	if e.costsCache != nil && time.Since(e.costsAt) < 4*time.Second {
 		return *e.costsCache
 	}
-	c := computeCosts(time.Now())
+	c := e.computeCosts(time.Now())
 	e.costsCache = &c
 	e.costsAt = time.Now()
 	return c
 }
 
-func computeCosts(now time.Time) dashboardCosts {
+// tailFileLines reads the bytes appended to path since offset and returns
+// the complete lines found in them, plus the offset to resume from next
+// time. A line still being written (no trailing newline yet) is left
+// unread and picked up on the next call. If the file is now shorter than
+// offset (rotated/truncated), it is re-read from the start.
+func tailFileLines(path string, offset int64) (lines []string, newOffset int64, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, offset, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, offset, err
+	}
+	size := info.Size()
+	if size < offset {
+		offset = 0
+	}
+	if size == offset {
+		return nil, offset, nil
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return nil, offset, err
+	}
+	buf, err := io.ReadAll(f)
+	if err != nil {
+		return nil, offset, err
+	}
+	lastNL := bytes.LastIndexByte(buf, '\n')
+	if lastNL < 0 {
+		return nil, offset, nil
+	}
+	for part := range bytes.SplitSeq(buf[:lastNL], []byte("\n")) {
+		if len(part) == 0 {
+			continue
+		}
+		lines = append(lines, string(part))
+	}
+	return lines, offset + int64(lastNL) + 1, nil
+}
+
+type claudeUsageEvent struct {
+	Model, Project                string
+	Ts                            time.Time
+	In, Out, WriteEph5m, WriteEph1h, Read int64
+}
+
+// tailClaudeUsage appends newly-written assistant turns from every Claude
+// Code transcript to e.claudeEvents, reading only the bytes each file grew
+// by since the last call.
+func (e *Engine) tailClaudeUsage(home string) {
+	root := filepath.Join(home, ".claude", "projects")
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Ext(path) != ".jsonl" {
+			return nil
+		}
+		lines, newOff, err := tailFileLines(path, e.claudeFileOffsets[path])
+		if err != nil {
+			return nil
+		}
+		e.claudeFileOffsets[path] = newOff
+		for _, line := range lines {
+			if !strings.Contains(line, `"assistant"`) {
+				continue
+			}
+			var rec claudeUsageLine
+			if err := json.Unmarshal([]byte(line), &rec); err != nil || rec.Type != "assistant" {
+				continue
+			}
+			ts, err := time.Parse(time.RFC3339Nano, rec.Timestamp)
+			if err != nil {
+				continue
+			}
+			u := rec.Message.Usage
+			w5, w1 := u.CacheCreation.Ephemeral5m, u.CacheCreation.Ephemeral1h
+			if w5 == 0 && w1 == 0 && u.CacheCreationInputTokens > 0 {
+				w5 = u.CacheCreationInputTokens
+			}
+			e.claudeEvents = append(e.claudeEvents, claudeUsageEvent{
+				Model: rec.Message.Model, Project: rec.Cwd, Ts: ts,
+				In: u.InputTokens, Out: u.OutputTokens,
+				WriteEph5m: w5, WriteEph1h: w1, Read: u.CacheReadInputTokens,
+			})
+		}
+		return nil
+	})
+}
+
+type codexUsageEvent struct {
+	Model, Project    string
+	Ts                time.Time
+	In, CachedIn, Out int64
+}
+
+// tailCodexUsage appends newly-written token_count events from every Codex
+// rollout file to e.codexEvents, reading only the bytes each file grew by
+// since the last call. The active model/project for a file is remembered
+// across calls (turn_context events, which set it, may be far behind the
+// newly appended token_count events in an earlier tail).
+func (e *Engine) tailCodexUsage(home string) {
+	root := filepath.Join(home, ".codex", "sessions")
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Ext(path) != ".jsonl" {
+			return nil
+		}
+		lines, newOff, err := tailFileLines(path, e.codexFileOffsets[path])
+		if err != nil {
+			return nil
+		}
+		e.codexFileOffsets[path] = newOff
+		model, project := e.codexFileModel[path], e.codexFileProject[path]
+		for _, line := range lines {
+			var rec codexRolloutLine
+			if err := json.Unmarshal([]byte(line), &rec); err != nil {
+				continue
+			}
+			switch {
+			case rec.Type == "turn_context":
+				if rec.Payload.Model != "" {
+					model = rec.Payload.Model
+				}
+				if rec.Payload.Cwd != "" {
+					project = rec.Payload.Cwd
+				}
+			case rec.Type == "event_msg" && rec.Payload.Type == "token_count":
+				ts, err := time.Parse(time.RFC3339Nano, rec.Timestamp)
+				if err != nil {
+					continue
+				}
+				u := rec.Payload.Info.LastTokenUsage
+				if u.InputTokens == 0 && u.OutputTokens == 0 {
+					continue
+				}
+				e.codexEvents = append(e.codexEvents, codexUsageEvent{Model: model, Project: project, Ts: ts, In: u.InputTokens, CachedIn: u.CachedInputTokens, Out: u.OutputTokens})
+			}
+		}
+		e.codexFileModel[path] = model
+		e.codexFileProject[path] = project
+		return nil
+	})
+}
+
+func (e *Engine) computeCosts(now time.Time) dashboardCosts {
 	dayCutoff := now.Add(-24 * time.Hour)
 	weekCutoff := now.Add(-7 * 24 * time.Hour)
 
@@ -226,22 +372,43 @@ func computeCosts(now time.Time) dashboardCosts {
 	home, err := os.UserHomeDir()
 	noLocalData := []string{"gemini"}
 	if err == nil {
-		scanClaudeUsage(home, weekCutoff, func(model, project string, ts time.Time, in, out, cacheRead5m, cacheRead1h, cacheReadTok int64) {
-			p, ok := claudePricing[model]
+		e.tailClaudeUsage(home)
+		e.tailCodexUsage(home)
+
+		// Drop events that fell out of the 7-day window so the in-memory
+		// history stays bounded instead of growing forever across the
+		// engine's lifetime.
+		keptClaude := e.claudeEvents[:0]
+		for _, ev := range e.claudeEvents {
+			if !ev.Ts.Before(weekCutoff) {
+				keptClaude = append(keptClaude, ev)
+			}
+		}
+		e.claudeEvents = keptClaude
+		keptCodex := e.codexEvents[:0]
+		for _, ev := range e.codexEvents {
+			if !ev.Ts.Before(weekCutoff) {
+				keptCodex = append(keptCodex, ev)
+			}
+		}
+		e.codexEvents = keptCodex
+
+		for _, ev := range e.claudeEvents {
+			p, ok := claudePricing[ev.Model]
 			var cost float64
 			if ok {
-				cost = float64(in)*p.Input + float64(out)*p.Output + float64(cacheReadTok)*p.CacheRead +
-					float64(cacheRead5m)*p.CacheWrite5m + float64(cacheRead1h)*p.CacheWrite1h
-			} else if model != "" && !seenUnpriced[model] {
-				seenUnpriced[model] = true
-				unpriced = append(unpriced, model)
+				cost = float64(ev.In)*p.Input + float64(ev.Out)*p.Output + float64(ev.Read)*p.CacheRead +
+					float64(ev.WriteEph5m)*p.CacheWrite5m + float64(ev.WriteEph1h)*p.CacheWrite1h
+			} else if ev.Model != "" && !seenUnpriced[ev.Model] {
+				seenUnpriced[ev.Model] = true
+				unpriced = append(unpriced, ev.Model)
 			}
-			recordCost("claude", model, project, ts, in, out, cacheReadTok, cacheRead5m+cacheRead1h, cost)
-		})
-		scanCodexUsage(home, weekCutoff, func(model, project string, ts time.Time, in, cachedIn, out int64) {
-			nonCached := max(in-cachedIn, 0)
-			record("codex", model, project, ts, nonCached, out, cachedIn, 0, openAIPricing)
-		})
+			recordCost("claude", ev.Model, ev.Project, ev.Ts, ev.In, ev.Out, ev.Read, ev.WriteEph5m+ev.WriteEph1h, cost)
+		}
+		for _, ev := range e.codexEvents {
+			nonCached := max(ev.In-ev.CachedIn, 0)
+			record("codex", ev.Model, ev.Project, ev.Ts, nonCached, ev.Out, ev.CachedIn, 0, openAIPricing)
+		}
 		scanOpenCodeUsage(home, weekCutoff, func(model, project string, ts time.Time, in, out, cacheRead, cacheWrite int64, cost float64) {
 			recordCost("opencode", model, project, ts, in, out, cacheRead, cacheWrite, cost)
 		})
@@ -321,51 +488,6 @@ type claudeUsageLine struct {
 	} `json:"message"`
 }
 
-// scanClaudeUsage walks every Claude Code project transcript and reports
-// each assistant turn's token usage split into 5m-cache-write,
-// 1h-cache-write, and cache-read buckets (Anthropic prices each
-// differently).
-func scanClaudeUsage(home string, since time.Time, emit func(model, project string, ts time.Time, in, out, cacheWrite5m, cacheWrite1h, cacheRead int64)) {
-	root := filepath.Join(home, ".claude", "projects")
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || filepath.Ext(path) != ".jsonl" {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil || info.ModTime().Before(since) {
-			return nil // file untouched since the cutoff can't hold newer lines
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			return nil
-		}
-		defer f.Close()
-		sc := bufio.NewScanner(f)
-		sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-		for sc.Scan() {
-			line := sc.Bytes()
-			if len(line) == 0 || !bytes.Contains(line, []byte(`"assistant"`)) {
-				continue
-			}
-			var rec claudeUsageLine
-			if err := json.Unmarshal(line, &rec); err != nil || rec.Type != "assistant" {
-				continue
-			}
-			ts, err := time.Parse(time.RFC3339Nano, rec.Timestamp)
-			if err != nil || ts.Before(since) {
-				continue
-			}
-			u := rec.Message.Usage
-			w5, w1 := u.CacheCreation.Ephemeral5m, u.CacheCreation.Ephemeral1h
-			if w5 == 0 && w1 == 0 && u.CacheCreationInputTokens > 0 {
-				w5 = u.CacheCreationInputTokens // older transcripts omit the split; default TTL is 5m
-			}
-			emit(rec.Message.Model, rec.Cwd, ts, u.InputTokens, u.OutputTokens, w5, w1, u.CacheReadInputTokens)
-		}
-		return nil
-	})
-}
-
 // codexRolloutLine covers two different envelope shapes used in the same
 // file: "turn_context" is a top-level record with the model directly under
 // "payload"; "token_count" instead arrives wrapped in a top-level
@@ -388,59 +510,6 @@ type codexRolloutLine struct {
 	} `json:"payload"`
 }
 
-// scanCodexUsage walks every Codex rollout file, tracking the active model
-// via turn_context events and summing the per-turn usage deltas reported by
-// token_count events.
-func scanCodexUsage(home string, since time.Time, emit func(model, project string, ts time.Time, in, cachedIn, out int64)) {
-	root := filepath.Join(home, ".codex", "sessions")
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || filepath.Ext(path) != ".jsonl" {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil || info.ModTime().Before(since) {
-			return nil
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			return nil
-		}
-		defer f.Close()
-		sc := bufio.NewScanner(f)
-		sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-		model, project := "", ""
-		for sc.Scan() {
-			line := sc.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-			var rec codexRolloutLine
-			if err := json.Unmarshal(line, &rec); err != nil {
-				continue
-			}
-			switch {
-			case rec.Type == "turn_context":
-				if rec.Payload.Model != "" {
-					model = rec.Payload.Model
-				}
-				if rec.Payload.Cwd != "" {
-					project = rec.Payload.Cwd
-				}
-			case rec.Type == "event_msg" && rec.Payload.Type == "token_count":
-				ts, err := time.Parse(time.RFC3339Nano, rec.Timestamp)
-				if err != nil || ts.Before(since) {
-					continue
-				}
-				u := rec.Payload.Info.LastTokenUsage
-				if u.InputTokens == 0 && u.OutputTokens == 0 {
-					continue
-				}
-				emit(model, project, ts, u.InputTokens, u.CachedInputTokens, u.OutputTokens)
-			}
-		}
-		return nil
-	})
-}
 
 type opencodeMessageData struct {
 	Role string  `json:"role"`

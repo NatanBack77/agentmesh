@@ -76,6 +76,19 @@ type Engine struct {
 	costsMu    sync.Mutex
 	costsCache *dashboardCosts
 	costsAt    time.Time
+	// Incremental tail state for cost tracking: byte offsets already
+	// consumed per transcript file, plus the parsed usage events accrued
+	// so far. Rereading every full transcript on each refresh would make
+	// the dashboard scan gigabytes of JSONL per tick as sessions grow;
+	// tailing only the bytes appended since the last read keeps refreshes
+	// cheap enough to run on a short interval. All access happens while
+	// costsMu is held (from costsSnapshot), so no separate lock is needed.
+	claudeFileOffsets map[string]int64
+	claudeEvents      []claudeUsageEvent
+	codexFileOffsets  map[string]int64
+	codexFileModel    map[string]string
+	codexFileProject  map[string]string
+	codexEvents       []codexUsageEvent
 
 	quotaMu    sync.Mutex
 	quotaCache *dashboardQuotas
@@ -88,9 +101,13 @@ type Engine struct {
 
 func New(cfg Config) *Engine {
 	e := &Engine{
-		registry:  &Registry{},
-		monitors:  make(map[string]*OutputMonitor),
-		bootHints: make(map[string]string),
+		registry:          &Registry{},
+		monitors:          make(map[string]*OutputMonitor),
+		bootHints:         make(map[string]string),
+		claudeFileOffsets: make(map[string]int64),
+		codexFileOffsets:  make(map[string]int64),
+		codexFileModel:    make(map[string]string),
+		codexFileProject:  make(map[string]string),
 	}
 	e.primitives = NewPrimitives(e.registry, e.deliver, e.suppress, cfg.maxDepth(), cfg.handoffTTL())
 	e.primitives.onFlow = func(src, tgt, kind string) {

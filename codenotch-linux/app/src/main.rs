@@ -19,7 +19,7 @@ mod tray;
 mod usage_cache;
 mod watcher;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{
     AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
@@ -29,6 +29,27 @@ const NOTCH_W_VERTICAL: f64 = 360.0;
 const NOTCH_H_VERTICAL: f64 = 420.0;
 const NOTCH_W_HORIZONTAL: f64 = 460.0;
 const NOTCH_H_HORIZONTAL: f64 = 360.0;
+
+// usage_cache::next_poll_delay() otherwise only refreshes provider usage
+// (token/limit percentages) every DEFAULT_POLL_MS (5 minutes), so a turn
+// that just finished doesn't show up until the next timer tick. watcher.rs
+// already tails ~/.claude/projects for activity state at no extra cost;
+// piggybacking a refresh on its "done" transition makes usage feel live
+// right when it actually changed, instead of adding a second poller. The
+// minimum interval keeps a burst of finishing agents from firing one HTTP
+// usage request per agent.
+static LAST_ACTIVITY_REFRESH_MS: AtomicU64 = AtomicU64::new(0);
+const ACTIVITY_REFRESH_MIN_INTERVAL_MS: u64 = 20_000;
+
+pub fn request_usage_refresh(app: &AppHandle) {
+    let now = provider::now_ms();
+    let last = LAST_ACTIVITY_REFRESH_MS.load(Ordering::SeqCst);
+    if now.saturating_sub(last) < ACTIVITY_REFRESH_MIN_INTERVAL_MS {
+        return;
+    }
+    LAST_ACTIVITY_REFRESH_MS.store(now, Ordering::SeqCst);
+    refresh_all(app);
+}
 
 pub struct AppState {
     store: Mutex<state::Store>,

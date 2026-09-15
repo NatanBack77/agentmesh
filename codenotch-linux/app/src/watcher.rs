@@ -111,6 +111,12 @@ fn evaluate(app: &AppHandle, tracks: &mut std::collections::HashMap<PathBuf, Tra
             track.activity.state = next.into();
             track.activity.updated_at = now;
             push(app, track.activity.clone());
+            if next == "done" {
+                // A turn just finished, so the account's token/limit usage
+                // likely moved — refresh it now instead of waiting for the
+                // next scheduled poll (see request_usage_refresh).
+                crate::request_usage_refresh(app);
+            }
         }
     }
 }

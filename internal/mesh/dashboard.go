@@ -266,54 +266,132 @@ const dashboardHTML = `<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101014">
   <title>AgentMesh · painel do mesh</title>
+  <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 26 26"><circle cx="13" cy="5" r="3" fill="%230a84ff"/><circle cx="5" cy="19" r="3" fill="%23af52de"/><circle cx="21" cy="19" r="3" fill="%23ff9500"/><path d="M13 8v6M13 14 6 17M13 14l7 3" stroke="%238e8e93" stroke-width="1.4" fill="none"/></svg>'>
+  <script>
+    (() => {
+      try {
+        const theme = localStorage.getItem("agentmesh.theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch (_) {}
+    })();
+  </script>
   <style>
     :root {
+      color-scheme: light;
+      --mac-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+      --mono-font: "SF Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      --bg: #f5f5f7;
+      --bg-soft: #ececf1;
+      --panel: rgba(255,255,255,.72);
+      --panel-2: rgba(255,255,255,.52);
+      --panel-strong: rgba(255,255,255,.88);
+      --ink: rgba(255,255,255,.92);
+      --line: rgba(60,60,67,.18);
+      --line-strong: rgba(60,60,67,.28);
+      --text: #1d1d1f;
+      --muted: rgba(60,60,67,.72);
+      --faint: rgba(60,60,67,.48);
+      --accent: #007aff;
+      --accent-soft: rgba(0,122,255,.14);
+      --accent-ink: #fff;
+      --green: #34c759;
+      --amber: #ff9500;
+      --red: #ff3b30;
+      --violet: #af52de;
+      --terminal-bg: color-mix(in srgb, #06070a 92%, var(--accent) 4%);
+      --terminal-text: rgba(255,255,255,.88);
+      --radius-sm: 8px;
+      --radius: 14px;
+      --radius-lg: 18px;
+      --blur-thin: blur(14px) saturate(160%);
+      --blur-regular: blur(22px) saturate(180%);
+      --blur-thick: blur(32px) saturate(190%);
+      --shadow-1: 0 1px 2px rgba(0,0,0,.08), 0 8px 24px rgba(0,0,0,.08);
+      --shadow-2: 0 2px 6px rgba(0,0,0,.10), 0 18px 48px rgba(0,0,0,.14);
+      --focus: #0a84ff;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    :root[data-theme="light"] { color-scheme: light; }
+    :root[data-theme="dark"] {
       color-scheme: dark;
-      --bg: #0c0f0d;
-      --bg-grid: #10130f;
-      --panel: #141805;
-      --panel-2: #1a1f18;
-      --line: #262b23;
-      --line-strong: #3b4235;
-      --text: #eae6d9;
-      --muted: #9ba398;
-      --faint: #666e63;
-      --accent: #c8e06a;
-      --accent-ink: #10130a;
-      --amber: #e0a558;
-      --red: #e2685c;
-      --violet: #9c8fe0;
-      --ink: #070907;
-      --radius: 3px;
-      --focus: #d7f28a;
+      --bg: #101014;
+      --bg-soft: #181820;
+      --panel: rgba(34,34,38,.68);
+      --panel-2: rgba(44,44,48,.46);
+      --panel-strong: rgba(58,58,62,.84);
+      --ink: rgba(10,10,12,.72);
+      --line: rgba(255,255,255,.14);
+      --line-strong: rgba(255,255,255,.24);
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(235,235,245,.68);
+      --faint: rgba(235,235,245,.44);
+      --accent: #0a84ff;
+      --accent-soft: rgba(10,132,255,.20);
+      --accent-ink: #fff;
+      --terminal-bg: color-mix(in srgb, #06070a 86%, var(--accent) 3%);
+      --terminal-text: rgba(255,255,255,.88);
+      --focus: #5ac8fa;
+      --shadow-1: 0 1px 2px rgba(0,0,0,.28), 0 14px 34px rgba(0,0,0,.24);
+      --shadow-2: 0 2px 8px rgba(0,0,0,.34), 0 24px 64px rgba(0,0,0,.38);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme]) {
+        color-scheme: dark;
+        --bg: #101014;
+        --bg-soft: #181820;
+        --panel: rgba(34,34,38,.68);
+        --panel-2: rgba(44,44,48,.46);
+        --panel-strong: rgba(58,58,62,.84);
+        --ink: rgba(10,10,12,.72);
+        --line: rgba(255,255,255,.14);
+        --line-strong: rgba(255,255,255,.24);
+        --text: rgba(255,255,255,.92);
+        --muted: rgba(235,235,245,.68);
+        --faint: rgba(235,235,245,.44);
+        --accent: #0a84ff;
+        --accent-soft: rgba(10,132,255,.20);
+        --accent-ink: #fff;
+        --terminal-bg: color-mix(in srgb, #06070a 86%, var(--accent) 3%);
+        --terminal-text: rgba(255,255,255,.88);
+        --focus: #5ac8fa;
+        --shadow-1: 0 1px 2px rgba(0,0,0,.28), 0 14px 34px rgba(0,0,0,.24);
+        --shadow-2: 0 2px 8px rgba(0,0,0,.34), 0 24px 64px rgba(0,0,0,.38);
+      }
     }
     * { box-sizing: border-box; }
     ::selection { background: var(--accent); color: var(--accent-ink); }
-    html { color-scheme: dark; }
+    html { color-scheme: light dark; }
+    html[data-theme="light"] { color-scheme: light; }
+    html[data-theme="dark"] { color-scheme: dark; }
+    html[data-theme-switching] * {
+      transition: none !important;
+    }
     body {
       margin: 0;
       min-height: 100vh;
       background:
-        radial-gradient(1200px 480px at 12% -10%, rgba(200, 224, 106, .05), transparent 60%),
-        repeating-linear-gradient(0deg, rgba(255,255,255,.014) 0px, rgba(255,255,255,.014) 1px, transparent 1px, transparent 22px),
-        repeating-linear-gradient(90deg, rgba(255,255,255,.014) 0px, rgba(255,255,255,.014) 1px, transparent 1px, transparent 22px),
+        radial-gradient(900px 480px at 12% -12%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%),
+        radial-gradient(760px 420px at 88% 0%, color-mix(in srgb, var(--violet) 13%, transparent), transparent 58%),
+        linear-gradient(180deg, var(--bg), var(--bg-soft)),
         var(--bg);
       color: var(--text);
-      font: 13.5px/1.5 "IBM Plex Mono", "Berkeley Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      font: 13px/1.35 var(--mac-font);
       font-variant-numeric: tabular-nums;
+      letter-spacing: 0;
     }
     button, input, select { font: inherit; color: inherit; }
     /* Chromium computes a <select>'s native popup list against the
        element's OWN color-scheme, not just the root's — without this the
        closed control looks themed but every dropdown opens white-on-white. */
-    select { color-scheme: dark; }
+    select { background-color: var(--panel-strong); color: var(--text); }
     a { color: var(--accent); text-decoration: none; }
     a:hover, a:focus-visible { text-decoration: underline; }
     :focus-visible {
       outline: 2px solid var(--focus);
-      outline-offset: 2px;
-      border-radius: 2px;
+      outline-offset: 3px;
+      border-radius: var(--radius-sm);
     }
     .sr-only {
       position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -322,53 +400,63 @@ const dashboardHTML = `<!doctype html>
     .shell {
       width: min(1400px, calc(100vw - 32px));
       margin: 0 auto;
-      padding: 16px 0 48px;
+      padding: 18px 0 48px;
     }
 
     /* header ---------------------------------------------------------- */
     .topbar {
       display: flex;
       align-items: center;
-      gap: 18px;
+      gap: 16px;
       border: 1px solid var(--line);
-      background: linear-gradient(180deg, #171c14, #12160f);
-      padding: 10px 14px;
-      border-radius: var(--radius);
+      background: var(--panel);
+      backdrop-filter: var(--blur-regular);
+      -webkit-backdrop-filter: var(--blur-regular);
+      box-shadow: var(--shadow-1);
+      padding: 12px 14px;
+      border-radius: var(--radius-lg);
       flex-wrap: wrap;
     }
     .brand { display: flex; align-items: center; gap: 10px; }
     .brand svg { flex: none; }
     .brand-text h1 {
       margin: 0;
-      font-size: 15.5px;
-      letter-spacing: .01em;
-      font-weight: 700;
+      font-size: 17px;
+      letter-spacing: 0;
+      font-weight: 650;
     }
-    .brand-text .tagline { color: var(--faint); font-size: 11px; margin-top: 1px; }
+    .brand-text .tagline { color: var(--faint); font-size: 11px; line-height: 14px; margin-top: 1px; }
     .divider-v { width: 1px; align-self: stretch; background: var(--line); margin: -2px 0; }
     nav.tabs {
       display: flex;
-      gap: 2px;
+      gap: 4px;
       flex: 1;
       min-width: 200px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--panel-2) 68%, transparent);
     }
     nav.tabs [role="tab"] {
       appearance: none;
       background: transparent;
       border: 1px solid transparent;
       color: var(--muted);
-      padding: 8px 12px;
-      border-radius: var(--radius);
+      padding: 7px 12px;
+      border-radius: 9px;
       cursor: pointer;
-      font-size: 12.5px;
-      letter-spacing: .01em;
-      min-height: 34px;
+      font-size: 13px;
+      letter-spacing: 0;
+      min-height: 30px;
+      transition: background-color 160ms var(--ease), color 160ms var(--ease), box-shadow 160ms var(--ease);
     }
-    nav.tabs [role="tab"]:hover { color: var(--text); }
+    nav.tabs [role="tab"]:hover { color: var(--text); background: color-mix(in srgb, var(--panel-strong) 58%, transparent); }
     nav.tabs [role="tab"][aria-selected="true"] {
-      color: var(--accent-ink);
-      background: var(--accent);
-      font-weight: 700;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+      font-weight: 650;
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
     }
     .top-meta {
       display: flex;
@@ -379,19 +467,20 @@ const dashboardHTML = `<!doctype html>
     }
     .host {
       color: var(--faint);
-      font-size: 11.5px;
+      font-size: 12px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
       padding: 0 8px;
       height: 30px;
       display: inline-flex;
       align-items: center;
+      background: var(--panel-2);
     }
     .chip {
       border: 1px solid var(--line);
-      background: rgba(0,0,0,.25);
+      background: var(--panel-2);
       height: 30px;
-      border-radius: var(--radius);
+      border-radius: 999px;
       display: inline-flex;
       align-items: center;
       gap: 7px;
@@ -400,35 +489,59 @@ const dashboardHTML = `<!doctype html>
       font-size: 12px;
     }
     .chip .dot { width: 7px; height: 7px; }
-    .chip.live { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--accent); }
+    .chip.live { border-color: color-mix(in srgb, var(--green) 55%, var(--line)); color: var(--green); }
     .chip.fallback { border-color: color-mix(in srgb, var(--amber) 55%, var(--line)); color: var(--amber); }
     .chip.error { border-color: color-mix(in srgb, var(--red) 55%, var(--line)); color: var(--red); }
     .stamp { color: var(--faint); font-size: 11px; }
     .btn {
       appearance: none;
       border: 1px solid var(--line-strong);
-      background: var(--panel-2, #1a1f18);
+      background: var(--panel-strong);
       color: var(--text);
       height: 34px;
       min-width: 44px;
-      border-radius: var(--radius);
+      border-radius: 10px;
       display: inline-flex;
       align-items: center;
       gap: 8px;
       padding: 0 12px;
       cursor: pointer;
-      font-size: 12.5px;
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: 0 1px 1px rgba(0,0,0,.06);
+      transition: transform 120ms var(--ease), border-color 160ms var(--ease), background-color 160ms var(--ease), box-shadow 160ms var(--ease);
     }
-    .btn:hover { border-color: var(--faint); }
+    .btn:hover { border-color: var(--line-strong); background: color-mix(in srgb, var(--panel-strong) 82%, var(--accent) 10%); box-shadow: var(--shadow-1); }
+    .btn:active { transform: scale(.985); }
+    .btn:disabled { opacity: .48; cursor: not-allowed; transform: none; }
     .btn.primary {
       border-color: var(--accent);
       background: var(--accent);
       color: var(--accent-ink);
-      font-weight: 700;
+      font-weight: 650;
     }
-    .btn.primary:hover { filter: brightness(1.06); }
+    .btn.primary:hover { filter: brightness(1.05); }
     .btn.ghost { background: transparent; }
     .iconbtn { width: 34px; padding: 0; justify-content: center; }
+    .theme-toggle {
+      min-width: 86px;
+      justify-content: center;
+      background: var(--panel-2);
+    }
+    .theme-toggle .theme-icon {
+      width: 16px;
+      height: 16px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 11px;
+      line-height: 1;
+      transition: background-color 160ms var(--ease), color 160ms var(--ease), transform 160ms var(--ease);
+    }
+    .theme-toggle:hover .theme-icon { transform: rotate(12deg); }
+    .theme-toggle .theme-label { min-width: 38px; text-align: left; }
 
     /* views ------------------------------------------------------------ */
     [role="tabpanel"][hidden] { display: none; }
@@ -436,19 +549,30 @@ const dashboardHTML = `<!doctype html>
     .metrics {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-top: 12px;
+      gap: 12px;
+      margin-top: 16px;
     }
     .metric, .panel {
       border: 1px solid var(--line);
-      background: #131711;
+      background: var(--panel);
+      backdrop-filter: var(--blur-regular);
+      -webkit-backdrop-filter: var(--blur-regular);
       border-radius: var(--radius);
+      box-shadow: var(--shadow-1);
     }
     .metric {
-      padding: 13px 14px;
-      min-height: 92px;
+      padding: 14px 16px;
+      min-height: 104px;
       position: relative;
       overflow: hidden;
+    }
+    .metric::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(135deg, rgba(255,255,255,.18), transparent 42%);
+      pointer-events: none;
     }
     .metric-head {
       display: flex;
@@ -460,24 +584,26 @@ const dashboardHTML = `<!doctype html>
     .label {
       color: var(--muted);
       text-transform: uppercase;
-      font-size: 10.5px;
-      letter-spacing: .09em;
+      font-size: 11px;
+      line-height: 14px;
+      letter-spacing: .045em;
+      font-weight: 650;
     }
     .value {
       margin-top: 10px;
-      font-size: 27px;
-      line-height: 1;
-      font-weight: 700;
-      letter-spacing: -.01em;
+      font-size: 26px;
+      line-height: 32px;
+      font-weight: 650;
+      letter-spacing: 0;
     }
-    .metric.tone-ok .value { color: var(--accent); }
+    .metric.tone-ok .value { color: var(--green); }
     .metric.tone-warn .value { color: var(--amber); }
     .metric.tone-bad .value { color: var(--red); }
-    .note { margin-top: 8px; color: var(--faint); font-size: 11.5px; }
+    .note { margin-top: 8px; color: var(--faint); font-size: 12px; line-height: 15px; }
     .bar {
       height: 6px;
-      border: 1px solid var(--line);
-      background: var(--ink);
+      border: 0;
+      background: color-mix(in srgb, var(--faint) 18%, transparent);
       border-radius: 999px;
       overflow: hidden;
       margin-top: 10px;
@@ -487,17 +613,17 @@ const dashboardHTML = `<!doctype html>
       height: 100%;
       width: 0%;
       background: linear-gradient(90deg, var(--accent), var(--violet));
-      transition: width .4s ease;
+      transition: width 300ms var(--ease);
     }
 
     .layout {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 372px;
-      gap: 12px;
-      margin-top: 12px;
+      gap: 16px;
+      margin-top: 16px;
       align-items: start;
     }
-    .panel { padding: 14px; }
+    .panel { padding: 16px; }
     .panel > header, .panel-head {
       display: flex;
       align-items: center;
@@ -510,12 +636,14 @@ const dashboardHTML = `<!doctype html>
     }
     .panel h2 {
       margin: 0;
-      font-size: 12.5px;
+      font-size: 15px;
+      line-height: 20px;
       text-transform: uppercase;
-      letter-spacing: .07em;
+      letter-spacing: .025em;
       color: var(--text);
+      font-weight: 650;
     }
-    .panel .hint { color: var(--faint); font-size: 11px; }
+    .panel .hint { color: var(--faint); font-size: 12px; }
 
     .toolrow { display: flex; gap: 8px; flex-wrap: wrap; }
     .search {
@@ -523,8 +651,8 @@ const dashboardHTML = `<!doctype html>
       align-items: center;
       gap: 7px;
       border: 1px solid var(--line);
-      background: var(--ink);
-      border-radius: var(--radius);
+      background: var(--panel-2);
+      border-radius: 10px;
       padding: 0 10px;
       height: 32px;
       min-width: 220px;
@@ -540,9 +668,9 @@ const dashboardHTML = `<!doctype html>
     .search input:focus-visible { outline: none; }
     select.statusfilter {
       border: 1px solid var(--line);
-      background: var(--ink);
+      background: var(--panel-2);
       color: var(--text);
-      border-radius: var(--radius);
+      border-radius: 10px;
       height: 32px;
       padding: 0 8px;
     }
@@ -551,35 +679,37 @@ const dashboardHTML = `<!doctype html>
       width: 100%;
       border-collapse: collapse;
       font-size: 12.5px;
+      line-height: 16px;
     }
     table.agents th {
       text-align: left;
       color: var(--faint);
       font-weight: 500;
       text-transform: uppercase;
-      font-size: 10.5px;
-      letter-spacing: .06em;
-      padding: 0 10px 8px;
+      font-size: 11px;
+      line-height: 14px;
+      letter-spacing: .04em;
+      padding: 0 12px 9px;
       border-bottom: 1px solid var(--line);
     }
     table.agents td {
-      padding: 10px;
+      padding: 11px 12px;
       border-bottom: 1px solid var(--line);
       vertical-align: middle;
     }
     table.agents tbody tr { cursor: pointer; }
-    table.agents tbody tr:hover, table.agents tbody tr:focus-within { background: rgba(200,224,106,.04); }
-    table.agents tbody tr[aria-selected="true"] { background: rgba(200,224,106,.08); }
+    table.agents tbody tr:hover, table.agents tbody tr:focus-within { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+    table.agents tbody tr[aria-selected="true"] { background: var(--accent-soft); }
     .rowbtn {
       all: unset;
       display: block;
       width: 100%;
       cursor: pointer;
     }
-    .agentname { font-weight: 700; }
+    .agentname { font-weight: 650; }
     .agentpath {
       color: var(--faint);
-      font-size: 11px;
+      font: 11px/14px var(--mono-font);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -591,6 +721,7 @@ const dashboardHTML = `<!doctype html>
       align-items: center;
       gap: 6px;
       font-size: 12px;
+      line-height: 15px;
     }
     .dot {
       width: 8px;
@@ -599,12 +730,12 @@ const dashboardHTML = `<!doctype html>
       background: var(--faint);
       flex: none;
     }
-    .dot.idle, .dot.completed { background: var(--accent); }
+    .dot.idle, .dot.completed { background: var(--green); }
     .dot.processing { background: var(--amber); }
     .dot.error { background: var(--red); }
     .badge-attn {
       color: var(--amber);
-      font-weight: 700;
+      font-weight: 650;
       display: inline-flex;
       align-items: center;
       gap: 5px;
@@ -615,8 +746,11 @@ const dashboardHTML = `<!doctype html>
       margin-top: 10px;
       border: 1px solid var(--line-strong);
       border-radius: var(--radius);
-      background: #10140d;
-      padding: 12px;
+      background: var(--panel-strong);
+      backdrop-filter: var(--blur-thick);
+      -webkit-backdrop-filter: var(--blur-thick);
+      padding: 14px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
     }
     .drawer-grid {
       display: grid;
@@ -624,7 +758,7 @@ const dashboardHTML = `<!doctype html>
       gap: 10px 16px;
       margin-bottom: 10px;
     }
-    .drawer-grid div span { display: block; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
+    .drawer-grid div span { display: block; color: var(--faint); font-size: 11px; line-height: 14px; text-transform: uppercase; letter-spacing: .04em; font-weight: 650; }
     .drawer-grid div strong { font-size: 12.5px; }
     .drawer .actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .term-pane { margin-top: 10px; }
@@ -636,7 +770,7 @@ const dashboardHTML = `<!doctype html>
       border: 1px solid var(--line);
       border-bottom: none;
       border-radius: var(--radius) var(--radius) 0 0;
-      background: #171c14;
+      background: var(--panel-2);
       padding: 6px 10px;
       font-size: 11px;
       color: var(--faint);
@@ -650,12 +784,12 @@ const dashboardHTML = `<!doctype html>
       font-size: 10.5px;
     }
     .term-live .dot { width: 7px; height: 7px; background: var(--faint); }
-    .term-live.on .dot { background: var(--accent); animation: term-pulse 1.6s ease-in-out infinite; }
+    .term-live.on .dot { background: var(--green); animation: term-pulse 1.6s ease-in-out infinite; }
     .term-live.error .dot { background: var(--red); animation: none; }
     @keyframes term-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
     .screen {
       margin: 0;
-      background: var(--ink);
+      background: var(--terminal-bg);
       border: 1px solid var(--line);
       border-radius: 0 0 var(--radius) var(--radius);
       padding: 10px;
@@ -667,16 +801,15 @@ const dashboardHTML = `<!doctype html>
       overflow: auto;
       white-space: pre-wrap;
       word-break: break-word;
-      font-size: 12px;
-      line-height: 1.5;
-      color: var(--text);
+      font: 12px/1.5 var(--mono-font);
+      color: var(--terminal-text);
     }
     .term-input { display: flex; gap: 6px; margin-top: 8px; }
     .term-input input {
       border: 1px solid var(--line);
-      background: var(--ink);
+      background: var(--panel-strong);
       color: var(--text);
-      border-radius: var(--radius);
+      border-radius: 10px;
       height: 34px;
       padding: 0 10px;
       flex: 1;
@@ -686,9 +819,9 @@ const dashboardHTML = `<!doctype html>
     .keysend { display: flex; gap: 6px; margin-top: 6px; }
     .keysend input {
       border: 1px solid var(--line);
-      background: var(--ink);
+      background: var(--panel-strong);
       color: var(--text);
-      border-radius: var(--radius);
+      border-radius: 10px;
       height: 32px;
       padding: 0 8px;
       flex: 1;
@@ -712,11 +845,11 @@ const dashboardHTML = `<!doctype html>
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      background: var(--ink);
+      background: var(--panel-strong);
       border: 1px solid var(--line);
       border-radius: var(--radius);
       padding: 6px 10px;
-      font-size: 12px;
+      font: 12px/15px var(--mono-font);
       color: var(--accent);
     }
     code.cmd button { all: unset; cursor: pointer; color: var(--faint); }
@@ -739,13 +872,13 @@ const dashboardHTML = `<!doctype html>
       align-items: center;
       gap: 7px;
       border: 1px solid var(--line-strong);
-      background: #171c14;
+      background: var(--panel-strong);
       border-radius: var(--radius);
       padding: 0 10px;
       font-size: 11.5px;
       cursor: default;
     }
-    .gnode:hover, .gnode:focus-visible { border-color: var(--faint); z-index: 2; }
+    .gnode:hover, .gnode:focus-visible { border-color: var(--accent); box-shadow: var(--shadow-1); z-index: 2; }
     .gnode .dot { flex: none; }
     .gnode-body { min-width: 0; }
     .gnode-body strong {
@@ -756,7 +889,7 @@ const dashboardHTML = `<!doctype html>
       white-space: nowrap;
     }
     .gnode-body span { color: var(--faint); font-size: 10px; }
-    .gnode.idle, .gnode.completed { border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong)); }
+    .gnode.idle, .gnode.completed { border-color: color-mix(in srgb, var(--green) 55%, var(--line-strong)); }
     .gnode.processing { border-color: color-mix(in srgb, var(--amber) 55%, var(--line-strong)); }
     .gnode.error { border-color: color-mix(in srgb, var(--red) 55%, var(--line-strong)); }
     .gnode.attn { box-shadow: 0 0 0 1px var(--amber); }
@@ -776,8 +909,8 @@ const dashboardHTML = `<!doctype html>
     .fact {
       border: 1px solid var(--line);
       border-radius: var(--radius);
-      padding: 9px 10px;
-      background: #10140d;
+      padding: 10px 12px;
+      background: var(--panel-strong);
       font-size: 11.5px;
     }
     .fact .label { display: block; margin-bottom: 3px; }
@@ -791,10 +924,10 @@ const dashboardHTML = `<!doctype html>
       border: 1px solid var(--line);
       border-radius: var(--radius);
       padding: 14px;
-      background: #10140d;
+      background: var(--panel-strong);
     }
     .quota-provider {
-      font-weight: 700;
+      font-weight: 650;
       text-transform: uppercase;
       font-size: 11.5px;
       letter-spacing: .06em;
@@ -829,24 +962,27 @@ const dashboardHTML = `<!doctype html>
 
     dialog#spawn-dialog, dialog#dirpicker-dialog {
       border: 1px solid var(--line-strong);
-      background: #12160f;
+      background: var(--panel-strong);
+      backdrop-filter: var(--blur-thick);
+      -webkit-backdrop-filter: var(--blur-thick);
       color: var(--text);
-      border-radius: var(--radius);
+      border-radius: 20px;
       padding: 0;
       width: min(440px, calc(100vw - 40px));
+      box-shadow: var(--shadow-2);
     }
-    dialog#spawn-dialog::backdrop, dialog#dirpicker-dialog::backdrop { background: rgba(4,5,4,.72); }
+    dialog#spawn-dialog::backdrop, dialog#dirpicker-dialog::backdrop { background: rgba(0,0,0,.32); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
     .dialog-inner { padding: 18px; }
-    .dialog-inner h2 { margin: 0 0 4px; font-size: 15px; }
+    .dialog-inner h2 { margin: 0 0 4px; font-size: 17px; line-height: 22px; font-weight: 650; }
     .dialog-inner p.hint { margin: 0 0 16px; color: var(--faint); font-size: 12px; }
     .field { margin-bottom: 12px; }
-    .field label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 5px; }
+    .field label { display: block; font-size: 11px; line-height: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 5px; font-weight: 650; }
     .field input, .field select {
       width: 100%;
       border: 1px solid var(--line);
-      background: var(--ink);
+      background: var(--panel-2);
       color: var(--text);
-      border-radius: var(--radius);
+      border-radius: 10px;
       height: 36px;
       padding: 0 10px;
     }
@@ -864,7 +1000,7 @@ const dashboardHTML = `<!doctype html>
       border-radius: var(--radius);
       padding: 6px;
       margin-bottom: 4px;
-      background: var(--ink);
+      background: var(--panel-2);
     }
     .dirrow {
       all: unset;
@@ -879,7 +1015,7 @@ const dashboardHTML = `<!doctype html>
       font-size: 12.5px;
       min-height: 36px;
     }
-    .dirrow:hover, .dirrow:focus-visible { background: rgba(200,224,106,.08); }
+    .dirrow:hover, .dirrow:focus-visible { background: var(--accent-soft); }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
     .form-error { color: var(--red); font-size: 12px; margin-top: 8px; min-height: 1em; }
 
@@ -897,6 +1033,24 @@ const dashboardHTML = `<!doctype html>
       table.agents tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
       table.agents td { border: 0; padding: 3px 0; }
     }
+    @media (prefers-reduced-transparency: reduce) {
+      :root {
+        --panel: var(--panel-strong);
+        --panel-2: var(--panel-strong);
+        --blur-thin: none;
+        --blur-regular: none;
+        --blur-thick: none;
+      }
+    }
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      :root {
+        --panel: var(--panel-strong);
+        --panel-2: var(--panel-strong);
+        --blur-thin: none;
+        --blur-regular: none;
+        --blur-thick: none;
+      }
+    }
     @media (prefers-reduced-motion: reduce) {
       * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
     }
@@ -907,10 +1061,10 @@ const dashboardHTML = `<!doctype html>
     <header class="topbar">
       <div class="brand">
         <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
-          <circle cx="13" cy="5" r="3" fill="#c8e06a"/>
-          <circle cx="5" cy="19" r="3" fill="#9c8fe0"/>
-          <circle cx="21" cy="19" r="3" fill="#e0a558"/>
-          <path d="M13 8v6M13 14 6 17M13 14l7 3" stroke="#48503f" stroke-width="1.4"/>
+          <circle cx="13" cy="5" r="3" fill="var(--accent)"/>
+          <circle cx="5" cy="19" r="3" fill="var(--violet)"/>
+          <circle cx="21" cy="19" r="3" fill="var(--amber)"/>
+          <path d="M13 8v6M13 14 6 17M13 14l7 3" stroke="var(--faint)" stroke-width="1.4"/>
         </svg>
         <div class="brand-text">
           <h1>AgentMesh</h1>
@@ -928,6 +1082,10 @@ const dashboardHTML = `<!doctype html>
         <span class="host">127.0.0.1</span>
         <span class="chip" id="conn" role="status"><i class="dot"></i><span id="conn-text">aguardando dados</span></span>
         <span class="stamp" id="stamp"></span>
+        <button class="btn theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+          <span class="theme-icon" id="theme-icon" aria-hidden="true">○</span>
+          <span class="theme-label" id="theme-label">Claro</span>
+        </button>
         <button class="btn primary" id="open-spawn"><span aria-hidden="true">+</span> Novo agente</button>
       </div>
     </header>
@@ -1060,7 +1218,7 @@ const dashboardHTML = `<!doctype html>
         <div class="cwd-row">
           <input id="spawn-cwd" name="cwd" list="known-dirs" placeholder="padrão: diretório do motor" autocomplete="off">
           <datalist id="known-dirs"></datalist>
-          <button type="button" class="btn iconbtn" id="browse-cwd" title="Escolher pasta" aria-label="Escolher pasta"><span aria-hidden="true">📁</span></button>
+          <button type="button" class="btn iconbtn" id="browse-cwd" title="Escolher pasta" aria-label="Escolher pasta"><span aria-hidden="true">⌘</span></button>
         </div>
         <p class="field-hint">Digite (com sugestões) ou clique na pasta pra navegar pelo disco a partir da sua conta.</p>
       </div>
@@ -1088,6 +1246,8 @@ const dashboardHTML = `<!doctype html>
   <script>
     const $ = (id) => document.getElementById(id);
     const announcer = $("live-announcer");
+    const THEME_KEY = "agentmesh.theme";
+    const themeQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
     let fallbackTimer = 0;
     let lastStreamAt = 0;
     let lastMode = "";
@@ -1108,6 +1268,51 @@ const dashboardHTML = `<!doctype html>
       return Math.floor(seconds / 3600) + "h " + Math.floor((seconds % 3600) / 60) + "m";
     };
     const safe = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;" }[c]));
+
+    /* ---- theme ----------------------------------------------------------- */
+    function explicitTheme() {
+      const theme = document.documentElement.dataset.theme;
+      return theme === "light" || theme === "dark" ? theme : "";
+    }
+
+    function effectiveTheme() {
+      return explicitTheme() || (themeQuery && themeQuery.matches ? "dark" : "light");
+    }
+
+    function setTheme(theme, persist) {
+      if (theme !== "light" && theme !== "dark") return;
+      document.documentElement.setAttribute("data-theme-switching", "");
+      document.documentElement.dataset.theme = theme;
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#101014" : "#f5f5f7");
+      try {
+        if (persist) localStorage.setItem(THEME_KEY, theme);
+      } catch (_) {}
+      updateThemeToggle();
+      window.setTimeout(() => document.documentElement.removeAttribute("data-theme-switching"), 80);
+    }
+
+    function updateThemeToggle() {
+      const button = $("theme-toggle");
+      if (!button) return;
+      const theme = effectiveTheme();
+      const dark = theme === "dark";
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#101014" : "#f5f5f7");
+      button.setAttribute("aria-pressed", String(dark));
+      button.setAttribute("aria-label", "Tema atual: " + (dark ? "escuro" : "claro") + ". Alternar tema.");
+      $("theme-icon").textContent = dark ? "◐" : "○";
+      $("theme-label").textContent = dark ? "Escuro" : "Claro";
+    }
+
+    $("theme-toggle").addEventListener("click", () => {
+      setTheme(effectiveTheme() === "dark" ? "light" : "dark", true);
+      announcer.textContent = "Tema: " + (effectiveTheme() === "dark" ? "escuro" : "claro");
+    });
+    if (themeQuery) {
+      themeQuery.addEventListener("change", () => {
+        if (!explicitTheme()) updateThemeToggle();
+      });
+    }
+    updateThemeToggle();
 
     /* ---- tabs (roving-tabindex pattern) -------------------------------- */
     const tabs = [$("tab-overview"), $("tab-agents"), $("tab-coord"), $("tab-costs")];
@@ -1297,7 +1502,7 @@ const dashboardHTML = `<!doctype html>
         '<td class="muted-cell">' + safe(a.provider) + '</td>' +
         '<td>' + fmtTime(a.uptime_seconds) + '</td>' +
         '<td>' + safe(a.inbox_count) + '</td>' +
-        '<td>' + (a.attention ? '<span class="badge-attn">⚠ Permissão</span>' : '<span class="muted-cell">—</span>') + '</td>' +
+        '<td>' + (a.attention ? '<span class="badge-attn"><span aria-hidden="true">!</span> Permissão</span>' : '<span class="muted-cell">—</span>') + '</td>' +
       '</tr>';
     }
 
@@ -1521,7 +1726,7 @@ const dashboardHTML = `<!doctype html>
       const markerId = "arrow-" + targetId;
 
       let edges = '<defs><marker id="' + markerId + '" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">' +
-        '<path d="M0,0 L7,3.5 L0,7 z" fill="#5b6350"/></marker></defs>';
+        '<path d="M0,0 L7,3.5 L0,7 z" fill="currentColor"/></marker></defs>';
       let nodes = '';
       positions.forEach(({ x, depth, agent: a }) => {
         const cx = x * colW + colW / 2;
@@ -1539,12 +1744,12 @@ const dashboardHTML = `<!doctype html>
           const cyTop = top;
           const midY = (py + cyTop) / 2;
           edges += '<path d="M' + px + ',' + py + ' C ' + px + ',' + midY + ' ' + cx + ',' + midY + ' ' + cx + ',' + cyTop +
-            '" fill="none" stroke="#5b6350" stroke-width="1.4" marker-end="url(#' + markerId + ')"/>';
+            '" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#' + markerId + ')"/>';
         }
       });
 
       el.innerHTML = '<div class="graph-scroll"><div class="graph-canvas" style="width:' + width + 'px;height:' + height + 'px">' +
-        '<svg width="' + width + '" height="' + height + '" aria-hidden="true">' + edges + '</svg>' +
+        '<svg width="' + width + '" height="' + height + '" aria-hidden="true" style="color:var(--faint)">' + edges + '</svg>' +
         nodes +
       '</div></div>';
 
@@ -1748,10 +1953,10 @@ const dashboardHTML = `<!doctype html>
       }
       const rows = [];
       if (data.parent) {
-        rows.push('<button type="button" class="dirrow" role="option" data-path="' + safe(data.parent) + '"><span aria-hidden="true">⬆</span> .. (subir)</button>');
+        rows.push('<button type="button" class="dirrow" role="option" data-path="' + safe(data.parent) + '"><span aria-hidden="true">⌃</span> .. (subir)</button>');
       }
       (data.entries || []).forEach((en) => {
-        rows.push('<button type="button" class="dirrow" role="option" data-path="' + safe(en.path) + '"><span aria-hidden="true">📁</span> ' + safe(en.name) + '</button>');
+        rows.push('<button type="button" class="dirrow" role="option" data-path="' + safe(en.path) + '"><span aria-hidden="true">›</span> ' + safe(en.name) + '</button>');
       });
       $("dirpicker-list").innerHTML = rows.length ? rows.join("") : '<p class="note" style="padding:8px">Sem subpastas aqui.</p>';
       $("dirpicker-list").querySelectorAll(".dirrow").forEach((btn) => {
